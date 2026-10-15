@@ -19,7 +19,7 @@ The graph finds the swap loops inside each program, a CP-SAT optimiser ranks the
 
 - **Loop finding is graph traversal.** 2-way and 3-way swaps are cycles over `CAN_GIVE_TO` edges (Q04, Q05). `algo.WCC` splits the pool into independent parts before matching (Q07), and `algo.betweenness` finds bridge families whose withdrawal would break the most loops (Q19).
 - **Repair is a local, multi-hop search.** When a test fails, Q11 searches only 2 hops around the released families. Every other loop stays untouched, and the screen says how many.
-- **Memory lives in the graph.** A failed test becomes a `FAILED` edge that is never proposed again, plus a `Failure` node. Every agent step and human approval is a `Decision` with `BASED_ON` edges to the facts it used. Agents hand off through `Offer`, `Crossmatch` and `Task` nodes, so a restart loses nothing.
+- **Memory lives in the graph.** A failed test becomes a `FAILED` edge that is never proposed again, plus a `Failure` node. Every agent step and human approval is a `Decision` with `BASED_ON` edges to the facts it used. Agents hand off through `Offer`, `Crossmatch` and `Task` nodes, so a restart loses nothing. Every agent step also stores what it read from memory first and which agent wrote it ("Read before acting" on each patient's page): the coordinator agent reads the health watch's beliefs and findings and the crossmatch coordinator's failed links; the matching agent reads the failure memory before every search (Q54) and skips those links; the scheduler, clerk and liaison pick up the health watch's tasks.
 - **Demo patients the agents follow over months.** Open **Demo patients** (`/patients`), no sign-up: Sunita (kidney, eGFR falling) and Rajesh (liver, MELD rising) each have six months of synthetic history. Press **Next week** and a new lab result arrives. The **health watch** compares the trend with sourced thresholds and with the stage it *remembers*. Only a more urgent stage triggers its playbook, which it reads from the graph. It then hands one `Task` per step to the scheduler (appointments), the committee clerk and the patient liaison. The case itself is run by a **coordinator agent**: each week a language model (Groq `openai/gpt-oss-120b`) reads the patient's state and memory from the graph and picks the next step from six vetted tools (search 2-way then 3-way, form the swap, run the tests, ask for papers, book surgery, or wait). It never writes Cypher, every tool checks the graph before it acts, every id in its reason is checked against the result, and the rules take over if it fails. No approve button. "Why this swap" shows each donation's stored reasons, the shallow vs deep search shows what a 2-way search missed, and each patient has a chat whose history lives in their memory graph. **See the swap on the live map** jumps to the map with it in focus. Readings stay in the hospital's private graph; each patient's memory (sessions, findings, beliefs that supersede older ones, playbooks) lives in a graph of its own (`mem_sunita`, `mem_rajesh`). See docs/personas.md.
 - **One graph per tenant.** Each hospital has its own private graph (`hosp_hyd`, …) holding names, full HLA typing and documents. The shared `exchange` graph holds only what matching needs.
 - **An agent that reasons over the graph, and never writes Cypher.** In **Ask KindRed** (`/ask`), a language model answers coordinators' questions ("What breaks if Bengaluru's P-0211 withdraws?", "Find a new loop for Kolkata: 2-way first, then 3-way") by choosing from 14 read-only graph tools. It runs on **Groq** (hosted `openai/gpt-oss-120b`, fast; set `GROQ_API_KEY`), **Claude** (`ANTHROPIC_API_KEY`), or **Llama 3.1 8B locally through Ollama** (free, no key, no data leaves the machine). Each tool is a named, parameterised query in `backend/queries/`, run through `GRAPH.RO_QUERY` so FalkorDB itself refuses a write. Every id is resolved against the graph before any traversal, so an unknown family gets "not in the graph" instead of a guess. Every answer shows the tool trace (tool, arguments, queries, latency, rows) and the graph paths it rests on, and a validator replaces any draft that names an id no query returned. Verified answers are remembered as `Question` nodes and recalled in later sessions, scoped to the viewer's hospitals and program. The same tools, plus the matching and workflow tools, are served to any MCP client: 35 in all, including the coordinator agent's case tools.
@@ -119,8 +119,9 @@ On Windows, `.\scripts\dev.ps1` starts all three in separate windows.
 | Tests (needs FalkorDB; resets the demo graph) | `docker compose exec backend sh -c "pip install -q pytest && pytest -q"` | `pytest -q` |
 | Simulation lab, 20 runs, about 4–5 min | `docker compose run --rm backend python -m swapnet.sim.lab --runs 20` | `python -m swapnet.sim.lab --runs 20` |
 | MCP server (35 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
+| Concurrency test, about 4 min (scratch graph, never the demo) | `docker compose exec backend python -m swapnet.sim.concurrency` | `python -m swapnet.sim.concurrency` |
 
-The simulation writes `data/generated/sim_results.json`. The Simulation screen reads it from the API, so refresh the page after a run.
+The simulation writes `data/generated/sim_results.json` and the concurrency test `data/generated/concurrency.json`. The Simulation and How it works screens read them from the API, so refresh the page after a run.
 
 ### Check it works
 
@@ -174,6 +175,35 @@ What this does and doesn't show:
 - Compared with a 3-way matcher that ignores failures, KindRed gets the same number of transplants (the intervals overlap), with **14% fewer wasted lab tests**, matches that hold **about 0.7 weeks sooner**, and about 25 broken loops repaired a year.
 - KindRed matches fewer highly sensitised patients than the failure-blind matcher (39% vs 43%), because their links fail more often. It's a known trade-off of failure-aware matching, and we haven't solved it yet.
 - The generator reproduces Saidman et al. 2006: 46.6% matched with 2-way loops (published 49.8%) and 57.7% with 2+3-way (published 59.8%), at n = 100.
+
+## Concurrency test (measured by us)
+
+Every hospital's intake agent writes to the shared exchange graph while the matching agent searches it. `python -m swapnet.sim.concurrency` does this on purpose with the real named queries, in a scratch graph of 150 synthetic kidney families: FalkorDB 6.0.1 in Docker with default settings, on one laptop (22 CPUs), agents as threads with their own connections. The numbers below are from `data/generated/concurrency.json`.
+
+**1. Agents publishing 96 new families at once** (publish with the version check, then build the family's links), while two matchers search every 2- and 3-way loop:
+
+| Agents writing | Families / s | Each family, p50 / p95 | Lost |
+|---|---|---|---|
+| 1 | 7.5 | 106 / 308 ms | 0 |
+| 4 | 18.8 | 168 / 435 ms | 0 |
+| 8 | 20.3 | 275 / 673 ms | 0 |
+| 16 | 20.5 | 611 / 1,287 ms | 0 |
+
+**2. Agents updating the same family at the same moment**, 10 updates each:
+
+| Agents | Updates | Stale writes refused (then retried) | Lost with the version check | Lost without it |
+|---|---|---|---|---|
+| 2 | 20 | 11 | 0 | 10 |
+| 8 | 80 | 330 | 0 | 65 |
+| 16 | 160 | 1,498 | 0 | 138 |
+
+What this shows and doesn't:
+
+- **No write was lost** in any run, and no query timed out or was refused. Afterwards every published family is in the graph once, at version 1.
+- **The version check is what makes concurrent agents safe.** Without it, the same read-then-write work by 16 agents keeps 22 of 160 updates; with it, all 160.
+- **Throughput levels off at about 20 families a second from 8 agents.** FalkorDB runs one write query at a time per graph (reads run in parallel), so more agents queue rather than write faster, and each family's wait grows.
+- **Writes don't measurably slow the matcher.** On a pool of fixed size, two matchers searching every loop take about 0.4–0.9 s with or without 1–16 agents updating families; the difference is within run-to-run noise. What slows the search is the pool's size: a bigger pool has many more 3-way loops, so the search grows steeply with it.
+- One laptop, synthetic data, a few seconds per run. It is a measurement of this prototype, not a capacity claim for a national system.
 
 ## Ask KindRed
 

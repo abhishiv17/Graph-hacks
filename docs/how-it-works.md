@@ -12,7 +12,7 @@ graph counts and query timings); it is just no longer in the menu.
 | `mem_sunita`, `mem_rajesh` | One memory graph per demo patient: sessions, findings, beliefs (`Fact` with `SUPERSEDES`), playbooks, swap searches |
 | `chat_sunita`, `chat_rajesh` | The ongoing conversation about each patient; never deleted by Replay or Restart demo |
 
-Every query is a named file in `backend/queries/` (Q00–Q53). Read-only ones run through `GRAPH.RO_QUERY`, so FalkorDB
+Every query is a named file in `backend/queries/` (Q00–Q57). Read-only ones run through `GRAPH.RO_QUERY`, so FalkorDB
 itself refuses a write from them.
 
 ## Track 1: agents that act on connected data
@@ -34,6 +34,8 @@ itself refuses a write from them.
 | Procedural | `Playbook`/`Step` nodes per stage, read by the health watch (Q44) |
 | Persistent conversation | Each patient's chat (`chat_<id>`, Q52–Q53) and Ask KindRed's remembered answers (Q37–Q39) |
 | Shared state and hand-offs | Agents coordinate only through `Task` nodes in the exchange graph (Q48) |
+| Agents read each other's memory | Every step lists what it read first and who wrote it (`agents/recall.py`): the coordinator reads the health watch's beliefs and findings and the crossmatch coordinator's failed links; the matching agent reads the failure memory before it searches (Q54); the scheduler, clerk and liaison pick up the health watch's tasks. Shown as "Read before acting" on each patient's page and on swap timelines |
+| High-concurrency reads and writes | Optimistic `version` check on every family write (Q01). Measured with `python -m swapnet.sim.concurrency`: up to 16 agents publishing or updating at once while the matcher searches, and up to 16 agents updating one family at the same moment; no write lost (README, "Concurrency test") |
 | Per user / tenant | One graph per hospital; one memory graph per patient |
 
 See docs/personas.md for the demo patients' week, docs/agents-and-tools.md for every agent and tool, and

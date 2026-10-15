@@ -53,6 +53,17 @@ The LLM chooses the order of tool calls (Track 1's "tool selection via MCP", vis
 | Per tenant | One graph per hospital plus the shared exchange graph |
 | Per person | One memory graph per demo patient (`mem_sunita`, `mem_rajesh`): `Session`, `Finding`, `Fact` (`SUPERSEDES`), `Playbook`/`Step` |
 
+**What each agent read before acting** (`swapnet/agents/recall.py`). Every step stores the memories it used, who wrote
+them and what it did with them: on the `Finding` (`read`, JSON) in the patient's memory graph, on the `Decision` (`read`,
+one line each) in the exchange graph, and on a hand-off `Task` (`read`). Examples:
+
+| Agent | Reads | Written by | Used for |
+|---|---|---|---|
+| Coordinator agent | beliefs (stage, trend, swap), the last 3 findings, the pool size at its last search, failed links for the patient, papers already requested | Health watch, itself, Crossmatch coordinator, Committee clerk | whether a swap is urgent; no repeat search on an unchanged pool; failed links never proposed; no paper asked twice |
+| Health watch | the stage it remembers, the live swap, the stage's playbook | itself, Matching and Coordinator agents, the care team | only a more urgent stage acts; nothing new once surgery is booked; one task per playbook step |
+| Matching agent | failed links in the pool or around released families (Q54), declined repairs | Crossmatch coordinator, Exchange coordinator (person) | those links are skipped and their families get priority; a declined repair is never proposed again |
+| Scheduler, Committee clerk, Patient liaison | the task they pick up | Health watch | do that playbook step |
+
 ### Coordinator agent (demo patients): a language model choosing tools
 
 `swapnet/agents/coordinator.py`. Each simulated week the model (Groq `openai/gpt-oss-120b` by default) gets the
@@ -110,6 +121,9 @@ Input: candidate loops from the graph, never the raw pool. Objectives in order: 
 
 ## Concurrency
 
-- Optimistic `version` on `Pair`; a stale write retries.
+- Optimistic `version` on `Pair`; a stale write is refused and retried (Q01).
 - `offer_loop` refuses if any pair is already offered or locked.
-- Day 4 load test: several intake agents writing while the matcher reads; report throughput and p50/p99.
+- Load test, measured: `python -m swapnet.sim.concurrency` (`swapnet/sim/concurrency.py`) runs in a scratch graph, never
+  the demo graph. 1–16 intake agents publish families while two matchers search every loop; 1–16 agents update their own
+  families while the matcher searches a pool of fixed size; 2–16 agents update one family at the same moment, with and
+  without the version check. Results in `data/generated/concurrency.json`, the README and the How it works screen.

@@ -57,6 +57,10 @@ Rules for every query: parameterised (no string building), edge aliases always r
 | Q51 | `searches` | persona → every search, newest first | Persona memory graph; patient page | built |
 | Q52 | `conversation` | persona → the ongoing chat about the patient, in order | Persona memory graph; any browser sees it | built |
 | Q53 | `add_message` | one chat turn → `Message` node | Persona memory graph | built |
+| Q54 | `failure_memory_around` | every `FAILED` link, around some families or the whole pool: what the matching agent reads before it searches | Exchange graph | built |
+| Q55 | `family_parts` | one family broken into parts: patient, donor, blood groups, donor antigens, patient antibodies and what they react with, hospital, liver profile | Exchange graph | built |
+| Q56 | `links_around` | live donation links out of / into a set of families, with chance and reasons: the explorer's hops | Exchange graph | built |
+| Q57 | `loops_through` | every 2-way and 3-way loop through one family over live links, whatever the others' stage | Exchange graph | built |
 | Q49 | `appointments` | pair id → past visits and appointments the scheduler held | Hospital graph | built |
 
 Every named query without a write clause runs through `GRAPH.RO_QUERY` (`db.is_read_only`), so FalkorDB refuses a write from it.
@@ -76,7 +80,8 @@ Q04, Q05 and Q11 take `$organ` (null = every program) and require every pair of 
 
 - Exact names and signatures of FalkorDB algorithms (`algo.wcc`, betweenness, `algo.cdlp`) in the current release.
 - Whether variable-length patterns with a hop limit (for Q11) are fast enough at 300 / 1,000 / 5,000 pairs, or whether Q11 should collect the neighbourhood first and then run Q04/Q05 with an `IN $ids` filter.
-- Write behaviour under concurrent agents (are writes serialised per graph?). Measure, don't claim.
+- Write behaviour under concurrent agents (are writes serialised per graph?). Measured: yes, one write query at a time per
+  graph, reads in parallel (`python -m swapnet.sim.concurrency`, results in `data/generated/concurrency.json`).
 
 ## Latency targets to report
 
