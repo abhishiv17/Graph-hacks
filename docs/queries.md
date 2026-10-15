@@ -36,6 +36,16 @@ Rules for every query: parameterised (no string building), edge aliases always r
 | Q29 | `integrity_liver` | → findings | Missing LiverProfile; graft size still estimated at committee stage; open anatomical, donor, recipient or surgical suitability reviews | built |
 | Q30 | `exchange_candidates` | organ, pair id → live links in and out | `find_exchange_candidates` MCP tool and `/api/matches`; returns nothing unless the organ is the pair's own | built |
 | Q31 | `pair_link_counts` | organ (or null) → live links per pair and direction | "Candidate exchanges" column (counted apart from Q25: FalkorDB mis-counted chained OPTIONAL MATCH counts) | built |
+| Q32 | `withdrawal_impact` | pair id → its live loops, the other families, whether each stored fallback survives | Ask KindRed `withdrawal_impact`, MCP | built |
+| Q33 | `reachable_within` | pair id, hops (1–3), limit → waiting same-program families reachable over live links, shortest route each | Ask KindRed `reachable_within` (same question at two depths), MCP. `*1..3` plus `length(path) <= $hops`, since FalkorDB doesn't take a parameter as a path bound | built |
+| Q34 | `connection_path` | two pair ids → `shortestPath` over `CAN_GIVE_TO` (same program only) | Ask KindRed `connection_path`, MCP. `shortestPath` only works in `RETURN`/`WITH` in FalkorDB | built |
+| Q35 | `failure_memory` | pair id → FAILED links on either side, with the proving test | Ask KindRed `failure_memory`, MCP | built |
+| Q36 | `resolve_ids` | ids → pair or loop, organ, hospitals (kind null = not in the graph) | Every Ask KindRed tool resolves and scope-checks ids with it before any traversal | built |
+| Q37 | `remember_answer` | a verified answer → `Question` node `ABOUT` its pairs and loops, with its scope | Ask KindRed memory (the agent's only write) | built |
+| Q38 | `recall` | ids → earlier answers about them, dated, with scope | Ask KindRed `recall`, MCP; filtered to the viewer's hospitals and program | built |
+| Q39 | `recent_questions` | limit → latest answers | Ask screen history (`/api/ask/history`) | built |
+
+Every named query without a write clause runs through `GRAPH.RO_QUERY` (`db.is_read_only`), so FalkorDB refuses a write from it.
 
 Q04, Q05 and Q11 take `$organ` (null = every program) and require every pair of a loop to share one organ. Q19 (`bridge_pairs`) is also built: the Live pool tags the top five bridge families.
 
