@@ -67,5 +67,6 @@ export function createLiveApi(): Api {
     personaSession: (id) => post(`/api/personas/${encodeURIComponent(id)}/session`),
     personaAdvance: (id) => post(`/api/personas/${encodeURIComponent(id)}/advance`),
     personaReset: (id) => post(`/api/personas/${encodeURIComponent(id)}/reset`),
+    personaChat: (id, message) => post(`/api/personas/${encodeURIComponent(id)}/chat`, { message }),
   };
 }

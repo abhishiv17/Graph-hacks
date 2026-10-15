@@ -6,7 +6,6 @@ import { ErrorState, Kpis, Loading, OrganTag, StatusPill, Tag } from "@/componen
 import { useProgram } from "@/lib/program";
 import type { Checklist } from "@/lib/data/types";
 import { Icon } from "@/components/app/icons";
-import CypherPanel from "@/components/CypherPanel";
 import { useCommittee } from "@/lib/data/hooks";
 import { docName, loopRoute } from "@/lib/data/derive";
 
@@ -99,7 +98,6 @@ export default function CommitteePage() {
             </table>
           </div>
           <p className="mt-3 text-xs muted">Names, documents and approval stages live in each hospital&rsquo;s private graph. Only the approval state and deadline are mirrored into the shared exchange graph.</p>
-          <div className="mt-8"><CypherPanel ran={res.data.queries} title="FalkorDB queries behind this screen" /></div>
         </>
       )}
     </div>

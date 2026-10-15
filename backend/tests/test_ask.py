@@ -163,7 +163,7 @@ class FakeOllama:
     def post(self, url, json):
         self.bodies.append(json)
         msg = self.messages.pop(0)
-        return NS(raise_for_status=lambda: None,
+        return NS(status_code=200, headers={}, raise_for_status=lambda: None,
                   json=lambda: {"message": msg, "done_reason": "stop", "prompt_eval_count": 100, "eval_count": 20})
 
 
@@ -236,7 +236,7 @@ class FakeGroq:
     def post(self, url, headers=None, json=None):
         self.bodies.append(json)
         msg = self.messages.pop(0)
-        return NS(raise_for_status=lambda: None,
+        return NS(status_code=200, headers={}, raise_for_status=lambda: None,
                   json=lambda: {"choices": [{"message": msg, "finish_reason": "tool_calls" if msg.get("tool_calls") else "stop"}],
                                 "usage": {"prompt_tokens": 12, "completion_tokens": 4}})
 

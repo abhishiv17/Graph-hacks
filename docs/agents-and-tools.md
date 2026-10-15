@@ -53,6 +53,16 @@ The LLM chooses the order of tool calls (Track 1's "tool selection via MCP", vis
 | Per tenant | One graph per hospital plus the shared exchange graph |
 | Per person | One memory graph per demo patient (`mem_sunita`, `mem_rajesh`): `Session`, `Finding`, `Fact` (`SUPERSEDES`), `Playbook`/`Step` |
 
+### Coordinator agent (demo patients): a language model choosing tools
+
+`swapnet/agents/coordinator.py`. Each simulated week the model (Groq `openai/gpt-oss-120b` by default) gets the
+patient's state, read from the graph (stage, trend, swap, missing papers, how the pool changed, the last things the
+agents remembered, and the step the rules expect), and picks from six tools: `find_swaps` (max_size 2 or 3),
+`form_swap`, `run_tests`, `request_papers`, `book_surgery`, `wait`. Each tool is human-written and checks its own
+preconditions against the graph; one action per week. Every id in the model's reason must appear in the action's
+result, or the reason is replaced by the result. If the model fails, or waits while a step is due, the rules run the
+same tools (the safety net) and the trace says so. The same tools are on the MCP server (`patient_*`).
+
 ### Health watch and scheduler (demo patients, docs/personas.md)
 
 | Agent | What it does |

@@ -93,6 +93,20 @@ export type PersonaSummary = {
   last: PersonaReading | null; trend: string | null; week: number; now: number; weeks_left: number;
   case: PersonaCase | null; pair_status: string | null; transplanted: boolean;
 };
+/** One tool call of the coordinator agent: what it called, with what, and what the graph answered. */
+export type CoordinatorStep = { tool: string; input: Record<string, unknown>; result: any; error: string | null; by: "model" | "rules"; ms: number };
+/** One swap search for a demo patient, at one depth (2 = 2-way only, 3 = also 3-way). */
+export type PersonaSearch = {
+  search_id: string; at: number; week: number; depth: 2 | 3; found: number; total: number; by: string;
+  loops: { families: string[]; size: number; route: string; p_all: number }[];
+};
+/** One donation of the patient's swap, read from its edge (Q13). */
+export type SwapLink = {
+  pos: number; from_pair: string; to_pair: string; from_city: string; to_city: string; organ: string;
+  donor_abo: string; donor_relation: string; patient_abo: string; reasons: string[] | null; p_success: number | null;
+  lobe?: string | null; grwr?: number | null; remnant_pct?: number | null; failed_cause?: string | null;
+};
+export type ChatMessage = { message_id: string; role: "user" | "assistant"; text: string; at: number; tools: string[]; model: string | null };
 /** The live swap a demo patient is in, and where it stands. */
 export type PersonaCase = {
   loop_id: string; status: string; kind: string; route: string; pairs: string[]; cities: string[];
@@ -105,7 +119,8 @@ export type PersonaHandoff = {
 };
 export type PersonaFinding = {
   finding_id: string; at: number; week: number; stage: string; previous_stage: string | null; text: string; value: number;
-  slope_per_year: number; weeks_to_next: number | null; kind: "baseline" | "reading" | "stage_change" | "case";
+  slope_per_year: number; weeks_to_next: number | null; kind: "baseline" | "reading" | "stage_change" | "case" | "world" | "decision" | "check";
+  trace?: CoordinatorStep[] | null; model?: string | null; safety_net?: string | null; action?: string | null; due?: string | null;
   readings: { result_id: string; value: number; at: number }[];
   handoffs: { task_id: string; agent: string; action: string; status: string; detail: string | null }[];
 };
@@ -121,6 +136,8 @@ export type PersonaJourney = PersonaSummary & {
   family_message: string | null; thresholds: { value: number; label: string }[];
   stages: { key: string; label: string; rule: string }[]; sources: string[];
   graphs: { memory: string; hospital: string; shared: string }; queries: Ran[];
+  why: SwapLink[]; searches: PersonaSearch[]; conversation: ChatMessage[];
+  places: Record<string, { code: string; city: string; lat: number; lon: number }>;
 };
 
 export interface Api {
@@ -159,4 +176,5 @@ export interface Api {
   personaSession(id: string): Promise<{ greeting: string; session_id: string; reused: boolean }>;
   personaAdvance(id: string): Promise<any>;
   personaReset(id: string): Promise<any>;
+  personaChat(id: string, message: string): Promise<{ messages: ChatMessage[]; answer: string }>;
 }

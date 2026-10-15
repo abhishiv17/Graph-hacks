@@ -7,6 +7,7 @@ WITH f, collect(DISTINCT {result_id: r.result_id, value: r.value, at: r.at}) AS 
      collect(DISTINCT {task_id: h.task_id, agent: h.agent, action: h.action, status: h.status, detail: h.detail}) AS handoffs
 RETURN f.finding_id AS finding_id, f.at AS at, f.week AS week, f.stage AS stage, f.previous_stage AS previous_stage,
        f.text AS text, f.value AS value, f.slope_per_year AS slope_per_year, f.weeks_to_next AS weeks_to_next,
-       f.kind AS kind, readings, handoffs
+       f.kind AS kind, f.trace AS trace, f.model AS model, f.safety_net AS safety_net, f.action AS action, f.due AS due,
+       readings, handoffs
 ORDER BY at DESC
 LIMIT $limit

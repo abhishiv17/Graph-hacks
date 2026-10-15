@@ -19,13 +19,13 @@ export function TopNav() {
     <header ref={root} className="k-nav fixed inset-x-0 top-0 z-50 transition-[background,box-shadow] duration-300">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
         <nav className="hidden md:flex gap-8 font-bold" style={{ color: "#4A5952" }} aria-label="Sections">
-          <a href="#how" className="hover:text-[#183B32] transition-colors">How it works</a>
-          <a href="#programs" className="hover:text-[#183B32] transition-colors">Programs</a>
-          <a href="#repair" className="hover:text-[#183B32] transition-colors">When a test fails</a>
+          <a href="#impact" className="hover:text-[#183B32] transition-colors">Impact</a>
+          <a href="#how" className="hover:text-[#183B32] transition-colors">How a swap works</a>
+          <a href="#agents" className="hover:text-[#183B32] transition-colors">Agents</a>
         </nav>
         <Link href="/" aria-label="KindRed home" className="justify-self-start md:justify-self-center"><Logo size={30} /></Link>
         <div className="flex items-center justify-end gap-8">
-          <a href="#results" className="hidden md:inline font-bold hover:text-[#183B32] transition-colors" style={{ color: "#4A5952" }}>Results</a>
+          <a href="#tracks" className="hidden md:inline font-bold hover:text-[#183B32] transition-colors" style={{ color: "#4A5952" }}>Hackathon tracks</a>
           <Link href="/patients" className="hidden sm:inline font-bold hover:text-[#183B32] transition-colors" style={{ color: "#4A5952" }}>Demo patients</Link>
           <Link href="/pool" className="k-btn k-btn-primary !py-2.5 !px-5 text-sm">Open workspace</Link>
         </div>

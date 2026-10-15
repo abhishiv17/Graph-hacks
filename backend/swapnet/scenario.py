@@ -143,6 +143,10 @@ def load(seed: int | None = None, background: int | None = None, plan: bool = Tr
     s = settings()
     seed = s["seed"] if seed is None else seed
     background = s["background_pairs"] if background is None else background
+    from swapnet import personas
+    for pid in personas.ids():  # conversations survive a restart: move any still in a memory graph first
+        if personas.memory_graph(pid) in db.db().list_graphs():
+            personas._move_messages(pid)
     db.reset_all()
     db.reset_seq()
     db.setup_schema()

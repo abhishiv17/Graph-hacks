@@ -567,6 +567,43 @@ def persona_advance(pid: str):
     return {**r, "queries": tr.ran}
 
 
+class ChatBody(BaseModel):
+    message: str
+
+
+@app.get("/api/personas/{pid}/chat")
+def persona_chat_history(pid: str):
+    """The ongoing conversation about this patient, stored in their memory graph, so every browser sees it."""
+    _persona(pid)
+    return {"messages": personas.conversation(pid)}
+
+
+@app.post("/api/personas/{pid}/chat")
+def persona_chat(pid: str, body: ChatBody, v: Viewer = Depends(access.viewer)):
+    """Ask about this patient. Ask KindRed answers from the graph (its tools include the patient's memory), and both
+    turns are stored in the patient's memory graph with the earlier ones as context."""
+    p = _persona(pid)
+    q = body.message.strip()
+    if not q:
+        raise HTTPException(400, "a message is required")
+    if len(q) > 1000:
+        raise HTTPException(400, "keep the message under 1000 characters")
+    st = ask_agent.status()
+    if not st["enabled"]:
+        raise HTTPException(503, f"Ask KindRed's model ({st['model']}) isn't available: {st['how']}")
+    history = [{"role": m["role"], "content": m["text"]} for m in personas.conversation(pid)][-6:]
+    framed = (f"This conversation is about demo patient {p['name']} ({p['pair_id']}, {p['organ']} program). "
+              f"Use patient_memory for what the agents know about them.\n\n{q}")
+    try:
+        out = ask_agent.ask(framed, v, history)
+    except httpx.HTTPError as e:
+        raise HTTPException(503, f"couldn't reach {st['model']}: {type(e).__name__}")
+    with core.LOCK:
+        personas.add_message(pid, "user", q)
+        personas.add_message(pid, "assistant", out["answer"], [t["tool"] for t in out["trace"]], out.get("model"))
+    return {"messages": personas.conversation(pid), "answer": out["answer"], "trace": out["trace"]}
+
+
 @app.post("/api/personas/{pid}/reset")
 def persona_reset(pid: str):
     """Replay this patient's journey from the six months on file."""
@@ -625,7 +662,7 @@ def graph_overview():
     """What lives in FalkorDB right now, and which named queries have been running against it."""
     graphs = []
     for g in sorted(db.db().list_graphs()):
-        if g != config.EXCHANGE and not g.startswith(("hosp_", "mem_")):
+        if g != config.EXCHANGE and not g.startswith(("hosp_", "mem_", "chat_")):
             continue
         nodes = db.raw("MATCH (n) RETURN labels(n)[0] AS label, count(*) AS n ORDER BY n DESC", graph=g)
         rels = db.raw("MATCH ()-[r]->() RETURN type(r) AS type, count(*) AS n ORDER BY n DESC", graph=g)

@@ -190,10 +190,10 @@ export default function AskPage() {
           : status.loading ? "Checking which model is available…" : "No model is available right now (see below)."}
       </p>
       <PageIntro id="ask"
-        what={<>Ask about any family, swap or failure in plain words. An AI agent (Claude, or a free local model through Ollama) answers by <strong>walking the graph</strong>: it picks from a fixed set of tools, each a human-written, read-only Cypher query, and never writes a query of its own. Every id it uses is looked up in the graph first, so a family that isn&rsquo;t there gets &ldquo;not in the graph&rdquo; instead of a guess. Every answer shows the <Term k="loop">loop</Term> and link paths it rests on and the exact queries that ran, and a check confirms every id in the answer came back from the graph. It is decision support: it never approves or allocates anything.</>}
+        what={<><strong>A coordinator&rsquo;s assistant for questions a table can&rsquo;t answer.</strong> &ldquo;What breaks if this family withdraws?&rdquo;, &ldquo;who else could this donor give to, within 3 hops?&rdquo;, &ldquo;why was this <Term k="loop">swap</Term> put together?&rdquo; An AI agent answers by walking the graph with a fixed set of read-only tools. It never writes a query, and every family or swap it names is checked against the graph, so it says &ldquo;not in the graph&rdquo; rather than guess.</>}
         steps={[
-          <>Pick an example or type a question. Multi-hop questions (who could replace a family, what breaks if one withdraws) are where the graph earns its keep.</>,
-          <>Open the tool trace to see which tools the model chose, with which arguments, and which FalkorDB queries ran.</>,
+          <>Pick an example or type a question.</>,
+          <>Open the tool trace to see which tools it chose and what the graph answered.</>,
           <>Click a family or swap id to open it.</>,
         ]} />
 

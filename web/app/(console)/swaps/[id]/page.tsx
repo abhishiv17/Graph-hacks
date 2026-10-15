@@ -2,7 +2,6 @@
 import Link from "next/link";
 import { use, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import CypherPanel from "@/components/CypherPanel";
 import ExchangeGraph, { GraphLegend, type GEdge, type GNode } from "@/components/app/ExchangeGraph";
 import { EmptyState, ErrorState, Loading, PageHeader, Section, StatusPill, Tag } from "@/components/app/ui";
 import { organOf } from "@/lib/organs";
@@ -72,7 +71,6 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
   const fams: any[] = data.families;
   const failed = (data.links as any[]).find((l) => l.status === "failed");
   const pairIds = new Set(fams.map((f) => f.pair_id));
-  const queries = [...(data.queries ?? []), ...(openRepair ? prop.queries ?? [] : [])];
 
   const decline = async (reason: string) => { await act.run("decline", (a) => a.decline(prop.task_id, reason)); };
   const approve = async (choice: string) => {
@@ -254,7 +252,6 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
         </Section>
       </div>
 
-      <div className="mt-10"><CypherPanel ran={queries} title="FalkorDB queries behind this swap" /></div>
     </div>
   );
 }
