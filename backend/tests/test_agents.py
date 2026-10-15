@@ -55,7 +55,7 @@ def test_decline_is_recorded_and_families_go_back_to_matching():
     # Never re-matched into the loop that was just declined.
     for l in r["rematched"]:
         assert set(l["pairs"]) != set(prop["recommended"]["pairs"])
-    assert c.post(f"/api/tasks/{prop['task_id']}/approve", json={"choice": "recommended"}).status_code == 400
+    assert c.post(f"/api/tasks/{prop['task_id']}/approve", json={"choice": "recommended"}).status_code == 409  # already declined
 
 
 def test_released_family_is_rematched_after_approval():

@@ -44,7 +44,7 @@ def test_break_and_repair():
 
 def test_failed_link_is_never_proposed_again():
     from swapnet.graph import db
-    rows = db.run("Q04_two_way_loops", {"ids": ["P-0388"]}) + db.run("Q05_three_way_loops", {"ids": ["P-0388"]})
+    rows = db.run("Q04_two_way_loops", {"ids": ["P-0388"], "organ": None}) + db.run("Q05_three_way_loops", {"ids": ["P-0388"], "organ": None})
     for r in rows:
         ps = r["pairs"]
         for i, a in enumerate(ps):
