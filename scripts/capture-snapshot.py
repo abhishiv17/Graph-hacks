@@ -14,7 +14,8 @@ from pathlib import Path
 
 API = os.getenv("API_URL", "http://localhost:8000")
 OUT = Path(__file__).resolve().parents[1] / "web" / "lib" / "demo" / "snapshot.json"
-FAMILIES = ["P-0154", "P-0211", "P-0388", "P-0377"]
+FAMILIES = ["P-0154", "P-0211", "P-0388", "P-0377", "P-0412", "P-0433", "P-0451"]
+LIVER_STORY = "P-0412"   # first family of the liver story loop (data/params/india_liver.yaml program.story)
 
 
 def call(path: str, body: dict | None = None):
@@ -44,6 +45,14 @@ def main() -> None:
     s["focus_loop"] = focus
     s["loops_before"] = {l["loop_id"]: call(f"/api/loops/{l['loop_id']}") for l in s["pool_chennai"]["loops"]}
     s["committee_before"] = call("/api/committee")
+    s["me"] = call("/api/me")
+    s["programs"] = call("/api/programs")
+    s["pairs"] = call("/api/pairs")
+    s["simulations"] = call("/api/simulations")
+    s["integrity_before"] = call("/api/integrity")
+    liver = next(l["loop_id"] for l in s["pool_chennai"]["loops"] if any(p["pair_id"] == LIVER_STORY for p in l["pairs"]))
+    s["liver_focus_loop"] = liver
+    s["liver_loop_before"] = s["loops_before"][liver]
 
     s["lab_result"] = call(f"/api/loops/{focus}/lab", {})
     s["loop_broken"] = call(f"/api/loops/{focus}")
@@ -58,8 +67,13 @@ def main() -> None:
     cut["repaired"] = last_seq()
 
     s["committee"] = call("/api/committee")
+    s["integrity_after"] = call("/api/integrity")
+    # The liver story runs after the kidney one, so the kidney stages above are unchanged.
+    s["liver_lab_result"] = call(f"/api/loops/{liver}/lab", {})
+    s["liver_loop_broken"] = call(f"/api/loops/{liver}")
     s["family"] = {f"{p}|{lang}": call(f"/api/family/{p}?lang={lang}") for p in FAMILIES for lang in ("en", "hi")}
     s["events"] = call("/api/events")
+    s["audit"] = call("/api/audit")
     s["event_cutoff"] = cut
     s["queries"] = call("/api/queries")
     s["sim"] = call("/api/sim")
@@ -68,7 +82,7 @@ def main() -> None:
 
     OUT.write_text(json.dumps(s, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     call("/api/demo/reset", {})  # leave the live demo at its starting point
-    print(f"Wrote {OUT} (focus loop {focus}, event cut-offs {cut})")
+    print(f"Wrote {OUT} (kidney loop {focus}, liver loop {liver}, event cut-offs {cut})")
 
 
 if __name__ == "__main__":
