@@ -1,10 +1,29 @@
 # KindRed
 
-Kidney paired-exchange (swap) coordination for India, built on FalkorDB for Graph Hacks 2026 (Tracks 1 and 2).
+A coordination and decision-support platform for living-donor exchanges across transplant programs: **kidney paired donation** and **living donor liver paired donation**, on one FalkorDB graph. Built for Graph Hacks 2026 (Tracks 1 and 2).
 
-**Synthetic demo data only. No real patients.**
+**Synthetic demo data only. No real patients. A software prototype, not a clinical tool.**
 
-The graph finds the swap loops, a CP-SAT optimiser picks among them, agents send offers and lab tests, and when a lab test fails the graph repairs the loop locally (2 hops around the released families). A person approves every repair. The LLM never allocates anything.
+The graph finds the swap loops inside each program, a CP-SAT optimiser ranks them, agents send offers and each program's test (a lab crossmatch for kidney, a donor work-up for liver), and when a test fails the graph repairs the loop locally (2 hops around the released families). A person approves every repair. The LLM never allocates anything and never creates a fact.
+
+### One platform, two programs
+
+| | Shared core | Kidney program | Liver program |
+|---|---|---|---|
+| Code | `swapnet/agents`, `optimiser`, `programs.py`, `access.py` | `swapnet/organs/kidney.py` | `swapnet/organs/liver.py`, `gen/liver.py` |
+| Matching rule | loop search, optimiser, repair (Q04, Q05, Q11) | ABO + virtual crossmatch (Q02) | ABO + graft size + evaluation statuses (Q21) |
+| Test before surgery | offers, tasks, failure memory | lab crossmatch | donor work-up (CT volumetry) |
+| Program config | committee, timeline, scenario framework | `data/params/india_kidney.yaml` `program:` | `data/params/india_liver.yaml` `program:` |
+
+### What the graph does that a table can't
+
+- **Loop finding is graph traversal.** 2-way and 3-way swaps are cycles over `CAN_GIVE_TO` edges (Q04, Q05). `algo.WCC` splits the pool into independent parts before matching (Q07), and `algo.betweenness` finds bridge families whose withdrawal would break the most loops (Q19).
+- **Repair is a local, multi-hop search.** When a test fails, Q11 searches only 2 hops around the released families. Every other loop stays untouched, and the screen says how many.
+- **Memory lives in the graph.** A failed test becomes a `FAILED` edge that is never proposed again, plus a `Failure` node. Every agent step and human approval is a `Decision` with `BASED_ON` edges to the facts it used. Agents hand off through `Offer`, `Crossmatch` and `Task` nodes, so a restart loses nothing.
+- **One graph per tenant.** Each hospital has its own private graph (`hosp_hyd`, …) holding names, full HLA typing and documents. The shared `exchange` graph holds only what matching needs.
+- **The LLM never writes Cypher.** Every query is a named, parameterised file in `backend/queries/`, exposed as an API call or one of 22 MCP tools. Ids are checked against the graph first, so an unknown family, loop, hospital or task gets "not in the graph" instead of an empty answer. Every response lists the queries that produced it and how long each took. The only LLM call translates family messages into languages other than English and Hindi.
+
+Programs never mix: each edge query matches only its own organ, every loop query requires one organ per loop, and an organ's rule refuses another organ's pair (`OrganMismatch`). Thresholds the project has a published source for (GRWR ≥ 0.8%, donor keeps ≥ 30%, MFI 2000) are program configuration; checks without an authoritative number are statuses (ELIGIBLE, REVIEW_REQUIRED, UNKNOWN, INELIGIBLE).
 
 ## Run it on your laptop
 
@@ -32,16 +51,16 @@ The first build takes about 3–5 minutes (it downloads FalkorDB, Python and Nod
 
 1. Open **http://localhost:3001**. That's the homepage.
 2. Click into the workspace, or go straight to **http://localhost:3001/pool**.
-3. Press **Reset pool**. It generates 153 synthetic pairs across 11 hospitals and runs the first match. Then follow the demo story below.
+3. Press **Restart demo**. It generates 153 kidney and 43 liver synthetic pairs across 11 hospitals and runs the first match. Then follow the demo story below.
 
 Useful extras:
 
 - **http://localhost:3000**: the FalkorDB browser. Pick the `exchange` graph to see the shared pool, or `hosp_hyd`, `hosp_blr`, … for a hospital's private graph.
 - **http://localhost:8000/docs**: the API, if you want to call it directly.
-- Reset the demo at any time with **Reset pool**, or run `curl -X POST http://localhost:8000/api/demo/reset`.
+- Reset the demo at any time with **Restart demo**, or run `curl -X POST http://localhost:8000/api/demo/reset`.
 - See logs with `docker compose logs -f backend`, and stop everything with `docker compose down`.
 
-If the API isn't reachable, the web app falls back to a recorded synthetic snapshot and says so in the top bar. So if you see "offline snapshot", check `docker compose ps`.
+If the API isn't reachable, the web app falls back to a recorded synthetic snapshot and shows an **Offline** badge in the top bar. It switches back to live data on its own once the API answers. If the badge stays, check `docker compose ps`.
 
 ### Option B: develop locally (hot reload)
 
@@ -91,15 +110,40 @@ Copy `.env.example` to `.env`. `ANTHROPIC_API_KEY` is only used to translate fam
 |---|---|---|
 | Tests (needs FalkorDB; resets the demo graph) | `docker compose exec backend sh -c "pip install -q pytest && pytest -q"` | `pytest -q` |
 | Simulation lab, 20 runs, about 4–5 min | `docker compose run --rm backend python -m swapnet.sim.lab --runs 20` | `python -m swapnet.sim.lab --runs 20` |
-| MCP server (18 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
+| MCP server (22 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
 
 The simulation writes `data/generated/sim_results.json`. The Simulation screen reads it from the API, so refresh the page after a run.
+
+### Check it works
+
+With the stack up, these walk the kidney story through the API (on Windows PowerShell, type `curl.exe` instead of `curl`):
+
+```bash
+curl http://localhost:8000/api/health                       # {"ok":true}
+curl -X POST http://localhost:8000/api/demo/reset           # 196 pairs, plan #42
+curl -X POST http://localhost:8000/api/demo/add-chennai     # the Chennai family joins
+curl -X POST http://localhost:8000/api/loops/S-0076/lab     # Bengaluru -> Kolkata is positive (DQ7)
+curl http://localhost:8000/api/loops/S-0076                 # proposal.task_id and the recommended repair
+curl -X POST http://localhost:8000/api/tasks/<task_id>/approve -H "Content-Type: application/json" -d '{"choice":"recommended"}'
+curl -X POST http://localhost:8000/api/loops/L-0034/lab     # liver: GRWR 0.74% fails, repair proposed
+```
+
+Replace `<task_id>` with the id from the previous response (PowerShell rejects the `<` `>` characters). The guards answer plainly:
+
+| Request | Answer |
+|---|---|
+| `POST /api/loops/S-0076/lab` again, after it broke | 409: a broken loop gets no more tests |
+| `GET /api/hospital/XYZ`, `GET /api/family/P-9999`, `POST /api/tasks/T-nope/approve` | 404: not in the graph |
+| Approving a task twice | 409: already done |
+| `-H "X-KindRed-User: observer"` on a lab run | 403: read-only role |
+
+To look at the graph directly, open http://localhost:3000, pick `exchange` and run `MATCH (a:Pair)-[f:FAILED]->(b:Pair) RETURN a, f, b`.
 
 ### Troubleshooting
 
 - **Port already in use**: something else is on 3000, 3001, 6379 or 8000. Stop it, or change the left-hand port in `docker-compose.yml`.
 - **The workspace shows "offline snapshot"**: the API isn't up yet. Wait 10 seconds after `docker compose up`, then check `docker compose logs backend`.
-- **The demo state looks odd after testing**: press **Reset pool** (or run `scripts/reset-demo`). Running the tests also resets the graph.
+- **The demo state looks odd after testing**: press **Restart demo** (or run `scripts/reset-demo`). Running the tests also resets the graph.
 - **Code changes don't show up in Docker**: rebuild with `docker compose up --build -d`.
 
 ## Simulation results (synthetic, measured by us)
@@ -124,13 +168,15 @@ What this does and doesn't show:
 
 | Screen | What it's for |
 |---|---|
-| **Live pool** (`/pool`) | A zoomable map of India with every planned donation as a line. Click any line to see who gives to whom, how likely it is to hold, and the reasons stored on its graph edge. Click a hospital to see only its families. |
-| **Swaps** (`/swaps`, `/swaps/S-0076`) | Each swap's graph, offers, lab tests, failure, repair proposal and committee papers. **Run lab tests** and **Approve repair** live here. |
-| **Committee papers** (`/committee`) | Which family's paperwork is holding up each swap, against the 42-day court target. |
-| **Family view** (`/case/P-0154`) | What one family sees on their phone, in English or Hindi. Only their own case. |
-| **Guided replay** (`/lab`) | The failure-and-repair story in slow motion, for explaining it. Changes nothing. |
-| **Impact** (`/impact`) | The yearly simulation: four policies, 20 runs, with the validation against Saidman 2006. |
-| **How it works** (`/graph`) | What's in FalkorDB right now, every named query with live timings, the 18 MCP tools, and how each Track 1/2 point is met (with honest status). |
+| **Program switcher** (sidebar) | Kidney, Liver, or All programs (an operational overview that lists both side by side, never one mixed graph). Every screen follows it; `?program=liver` links work too. |
+| **Live pool** (`/pool`) | A zoomable map of India with every planned donation as a line, coloured by program. Each program has its own family columns (kidney: cPRA, HLA typing, crossmatch; liver: MELD and weight, graft suitability, anatomical, donor and recipient evaluation). Family details mark shared exchange data versus what stays private to the hospital. |
+| **Swaps** (`/swaps`, `/swaps/S-0076`, `/swaps/L-0034`) | Each swap's graph, evidence per recommendation (facts, constraints satisfied, flags, test, human-approval status), the program's committee checklist, a proposed (synthetic) timeline, offers, tests, failure and repair proposal. |
+| **Committee review** (`/committee`) | Each swap's readiness against its own program checklist, and which family's paperwork is holding it up, against the 42-day court target. |
+| **Integrity** (`/integrity`) | Shared checks (references, broken links, cross-program links, missing evidence or approvals) and program checks (kidney crossmatches; liver graft-size confirmation and open reviews). Workflow checks, never diagnoses. |
+| **Family view** (`/case/P-0154`, `/case/P-0451`) | What one family sees on their phone, in English or Hindi, in their program's terms. Only their own case. |
+| **Simulation lab** (`/lab`) | Each program's scenario (initial state, failure event, repair strategy, review step), replayed from recorded backend output. Changes nothing. |
+| **Impact** (`/impact`) | The yearly simulation (kidney program only): four policies, 20 runs, with the validation against Saidman 2006. |
+| **How it works** (`/graph`) | What's in FalkorDB right now, every named query with live timings, the 22 MCP tools, and how each Track 1/2 point is met (with honest status). |
 | **Audit trail** (`/audit`) | Every agent action and human decision, in order. |
 
 A **demo guide** at the top of every screen shows the five story steps and offers the next one as a button, and every screen opens with a short "what is this" note. Dotted words have a plain-language definition on hover.
@@ -140,15 +186,17 @@ A **demo guide** at the top of every screen shows the five story steps and offer
 1. **Live pool**: 153 synthetic pairs across 11 hospitals; this week's plan includes swap S-0076, Hyderabad → Bengaluru → Kolkata (46% chance every link holds, 2.0 of 3 expected thanks to its 2-way fallback). Zoom in and click its lines.
 2. **Add a new family (Chennai)**: the intake agent checks the rules and adds the family's links to the graph.
 3. Open S-0076 and press **Run lab tests**. Hyderabad → Bengaluru is negative; Bengaluru → Kolkata is positive (DQ7, never typed). The link is stored as a FAILED edge and never proposed again.
-4. The repair panel shows Hyderabad → Bengaluru → Chennai, found in milliseconds without touching the other 27 loops, with the 2-way fallback and alternatives. **Approve recommended repair**; the negative test carries over.
-5. **Family view** (P-0154, English or Hindi), **Committee papers** (the repaired swap waits on Bengaluru's relationship proof and Chennai's three missing papers), **Impact**, **How it works**.
+4. The repair panel shows Hyderabad → Bengaluru → Chennai, found in milliseconds without touching any other loop, with the 2-way fallback and alternatives. Kolkata → Hyderabad's test is marked *Not needed*: the loop broke first, so it was never sent. **Approve recommended repair**; the negative test carries over.
+5. **Family view** (P-0154, English or Hindi), **Committee review** (the repaired swap waits on Bengaluru's relationship proof and Chennai's three missing papers), **Impact**, **How it works**.
+6. Switch the sidebar to **Liver**. Open L-0034, Delhi → Chennai → Kochi, and press **Run donor work-ups**. Chennai's CT volumetry measures a 780 ml lobe (GRWR 0.74%, below the program's 0.8% rule), so that link fails; the repair proposes Delhi ⇄ Chennai. The liver committee checklist shows Chennai's surgical suitability review still open.
 
 ## Layout
 
-- `backend/queries/` – every Cypher query, named Q00–Q24. Each screen shows which ones ran and how long they took.
+- `backend/queries/` – every Cypher query, named Q00–Q31. Each screen shows which ones ran and how long they took.
 - `backend/swapnet` is the Python package (the project's working name was SwapNet).
 - `backend/swapnet/graph` – FalkorDB access, publishing from private hospital graphs to the shared exchange graph, and a log of every query for the How it works screen.
 - `backend/swapnet/agents` – intake, crossmatch coordinator, matching, committee clerk, family messages.
+- `backend/swapnet/organs` – the organ programs (kidney, liver) behind one interface; `swapnet/programs.py` – shared services (pair facts, evidence, checklists, timelines, integrity, scenarios); `swapnet/access.py` – program- and hospital-scoped access for demo identities (`data/policies/access.yaml`; there is no authentication).
 - `backend/swapnet/optimiser` – CP-SAT on expected transplants (accounts for test failures and fallbacks).
 - `backend/swapnet/sim` – day-by-day yearly simulation of 4 policies, validated against Saidman et al. 2006.
 - `data/` – published parameters (ABO, cPRA bands, failure rates), hospitals, intake policies, the demo scenario. `data/geo/` – India map data (Natural Earth, India's point of view).
@@ -157,7 +205,11 @@ A **demo guide** at the top of every screen shows the five story steps and offer
 
 ## Data model (short)
 
-One private graph per hospital (`hosp_HYD`, …) holds names, full HLA typing, relationships and documents. The shared `exchange` graph holds only what matching needs: `Pair`, `Donor`, `Patient`, `HLAAntigen`, `Antibody`, `CAN_GIVE_TO {p_success, reasons}`, `Loop`, `IN_LOOP`, `FAILED`, `Failure`, `Decision`, `Task`, `Event`. See docs/schema.md.
+One private graph per hospital (`hosp_HYD`, …) holds names, full HLA typing, relationships and documents. The shared `exchange` graph holds only what matching needs: `Pair`, `Donor`, `Patient`, `HLAAntigen`, `Antibody`, `CAN_GIVE_TO {p_success, reasons}`, `Loop`, `IN_LOOP`, `FAILED`, `Failure`, `Decision`, `Task`, `Event`. Liver donors add a `LiverProfile` (volumes and evaluation statuses). Until a donor's CT volumetry is shared, the exchange sees a volume estimated from height and weight; the CT measurements and clinical notes stay in the hospital graph, and a failed work-up writes the measured volumes to the exchange so that donor is never matched on the estimate again. See docs/schema.md.
+
+### Program APIs
+
+`GET /api/programs`, `/api/programs/{organ}`, `/api/pairs?organ=`, `/api/exchanges?organ=`, `/api/exchanges/{id}/evidence`, `/api/matches?organ=&pair_id=`, `/api/simulations?organ=`, `/api/integrity?organ=`, `/api/audit?organ=`, `/api/me`. Callers may name a demo identity with the `X-KindRed-User` header (`meera`, `hyd_coord`, `che_liver`, `committee`, `observer`); scoped reads filter rows and out-of-scope actions return 403.
 
 ## Rules we follow
 
