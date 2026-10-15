@@ -21,7 +21,7 @@ The graph finds the swap loops inside each program, a CP-SAT optimiser ranks the
 - **Repair is a local, multi-hop search.** When a test fails, Q11 searches only 2 hops around the released families. Every other loop stays untouched, and the screen says how many.
 - **Memory lives in the graph.** A failed test becomes a `FAILED` edge that is never proposed again, plus a `Failure` node. Every agent step and human approval is a `Decision` with `BASED_ON` edges to the facts it used. Agents hand off through `Offer`, `Crossmatch` and `Task` nodes, so a restart loses nothing.
 - **One graph per tenant.** Each hospital has its own private graph (`hosp_hyd`, …) holding names, full HLA typing and documents. The shared `exchange` graph holds only what matching needs.
-- **The LLM never writes Cypher.** Every query is a named, parameterised file in `backend/queries/`, exposed as an API call or one of 22 MCP tools. Ids are checked against the graph first, so an unknown family, loop, hospital or task gets "not in the graph" instead of an empty answer. Every response lists the queries that produced it and how long each took. The only LLM call translates family messages into languages other than English and Hindi.
+- **An agent that reasons over the graph, and never writes Cypher.** In **Ask KindRed** (`/ask`), a language model answers coordinators' questions ("What breaks if Bengaluru's P-0211 withdraws?", "Find a new loop for Kolkata: 2-way first, then 3-way") by choosing from 13 read-only graph tools. By default it runs **Llama 3.1 8B locally through Ollama** (free, no key, no data leaves the machine); set a Claude key to use Claude instead. Each tool is a named, parameterised query in `backend/queries/`, run through `GRAPH.RO_QUERY` so FalkorDB itself refuses a write. Every id is resolved against the graph before any traversal, so an unknown family gets "not in the graph" instead of a guess. Every answer shows the tool trace (tool, arguments, queries, latency, rows) and the graph paths it rests on, and a validator replaces any draft that names an id no query returned. Verified answers are remembered as `Question` nodes and recalled in later sessions, scoped to the viewer's hospitals and program. The same tools, plus the matching and workflow tools, are served to any MCP client: 28 in all.
 
 Programs never mix: each edge query matches only its own organ, every loop query requires one organ per loop, and an organ's rule refuses another organ's pair (`OrganMismatch`). Thresholds the project has a published source for (GRWR ≥ 0.8%, donor keeps ≥ 30%, MFI 2000) are program configuration; checks without an authoritative number are statuses (ELIGIBLE, REVIEW_REQUIRED, UNKNOWN, INELIGIBLE).
 
@@ -102,7 +102,12 @@ On Windows, `.\scripts\dev.ps1` starts all three in separate windows.
 
 ### Optional settings
 
-Copy `.env.example` to `.env`. `ANTHROPIC_API_KEY` is only used to translate family messages into languages other than English and Hindi. Everything else works without it. If the API runs somewhere other than `localhost:8000`, set `NEXT_PUBLIC_API_URL` before building the web app.
+**Ask KindRed needs a model.** Two options; every other screen works without either.
+
+- **Free, local (default):** install [Ollama](https://ollama.com), then run `ollama pull llama3.1:8b`. Leave Ollama running; the backend in Docker reaches it at `host.docker.internal:11434`. On a laptop CPU an answer takes about a minute (two model turns over a ~3,000-token prompt). Set `KINDRED_OLLAMA_MODEL` to try another model with tool support.
+- **Claude:** copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY` and `KINDRED_ASK_PROVIDER=anthropic` (model `claude-opus-5-5`, override with `KINDRED_ASK_MODEL`). Answers take seconds.
+
+`/api/ask/status` says which model is active and whether it's reachable. The key, if set, is also used to translate family messages into languages other than English and Hindi. After editing `.env`, run `docker compose up -d backend`. If the API runs somewhere other than `localhost:8000`, set `NEXT_PUBLIC_API_URL` before building the web app.
 
 ### Tests, simulation and MCP
 
@@ -110,7 +115,7 @@ Copy `.env.example` to `.env`. `ANTHROPIC_API_KEY` is only used to translate fam
 |---|---|---|
 | Tests (needs FalkorDB; resets the demo graph) | `docker compose exec backend sh -c "pip install -q pytest && pytest -q"` | `pytest -q` |
 | Simulation lab, 20 runs, about 4–5 min | `docker compose run --rm backend python -m swapnet.sim.lab --runs 20` | `python -m swapnet.sim.lab --runs 20` |
-| MCP server (22 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
+| MCP server (28 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
 
 The simulation writes `data/generated/sim_results.json`. The Simulation screen reads it from the API, so refresh the page after a run.
 
@@ -164,6 +169,21 @@ What this does and doesn't show:
 - KindRed matches fewer highly sensitised patients than the failure-blind matcher (39% vs 43%), because their links fail more often. It's a known trade-off of failure-aware matching, and we haven't solved it yet.
 - The generator reproduces Saidman et al. 2006: 46.6% matched with 2-way loops (published 49.8%) and 57.7% with 2+3-way (published 59.8%), at n = 100.
 
+## Ask KindRed
+
+| Ask | What the agent does in the graph |
+|---|---|
+| "Why was S-0076 put together?" | `explain_loop`: each link's success estimate and the reasons stored on the edge (Q13) |
+| "What breaks if Bengaluru's P-0211 withdraws?" | `withdrawal_impact`: the live loops it's in, who else is affected, whether the stored fallback survives (Q32) |
+| "Find a new loop for Kolkata's P-0388: 2-way first, then 3-way." | `find_loops_for` at depth 2, then 3: the same question at two depths (Q04, Q05) |
+| "How many families can P-0154's donor reach within 1 hop, and within 3?" | `reachable_within`: variable-length paths over live links (Q33) |
+| "How is P-0154 connected to P-1088?" | `connection_path`: `shortestPath` (Q34) |
+| "Which families hold the most loops together?" | `bridge_families`: `algo.betweenness` (Q19) |
+| "What has the graph learned from failed tests around P-0211?" | `failure_memory`: FAILED edges and their tests (Q35) |
+| "What happens if P-9999 withdraws?" | The id resolver (Q36) answers "not in the graph"; nothing else runs |
+
+Earlier verified answers are stored in the graph (Q37) and recalled with their dates (Q38, Q39).
+
 ## The screens
 
 | Screen | What it's for |
@@ -176,7 +196,7 @@ What this does and doesn't show:
 | **Family view** (`/case/P-0154`, `/case/P-0451`) | What one family sees on their phone, in English or Hindi, in their program's terms. Only their own case. |
 | **Simulation lab** (`/lab`) | Each program's scenario (initial state, failure event, repair strategy, review step), replayed from recorded backend output. Changes nothing. |
 | **Impact** (`/impact`) | The yearly simulation (kidney program only): four policies, 20 runs, with the validation against Saidman 2006. |
-| **How it works** (`/graph`) | What's in FalkorDB right now, every named query with live timings, the 22 MCP tools, and how each Track 1/2 point is met (with honest status). |
+| **How it works** (`/graph`) | What's in FalkorDB right now, every named query with live timings, the MCP tools, and how each Track 1/2 point is met (with honest status). |
 | **Audit trail** (`/audit`) | Every agent action and human decision, in order. |
 
 A **demo guide** at the top of every screen shows the five story steps and offers the next one as a button, and every screen opens with a short "what is this" note. Dotted words have a plain-language definition on hover.
@@ -192,7 +212,7 @@ A **demo guide** at the top of every screen shows the five story steps and offer
 
 ## Layout
 
-- `backend/queries/` – every Cypher query, named Q00–Q31. Each screen shows which ones ran and how long they took.
+- `backend/queries/` – every Cypher query, named Q00–Q39. Each screen shows which ones ran and how long they took.
 - `backend/swapnet` is the Python package (the project's working name was SwapNet).
 - `backend/swapnet/graph` – FalkorDB access, publishing from private hospital graphs to the shared exchange graph, and a log of every query for the How it works screen.
 - `backend/swapnet/agents` – intake, crossmatch coordinator, matching, committee clerk, family messages.
@@ -214,6 +234,12 @@ One private graph per hospital (`hosp_HYD`, …) holds names, full HLA typing, r
 ## Rules we follow
 
 Indian law: swaps only between near-relative pairs, each needing Authorisation Committee approval, no altruistic chains. These are checked before a pair is published.
+
+## AI assistance
+
+We used an AI coding assistant, Claude Code (Anthropic), while building KindRed: for writing and refactoring code, tests and documentation, and for reviewing and manually testing the app. The product idea, the graph model, the matching and repair approach and the final decisions are the team's, and we can explain every part of the code. Ask KindRed itself calls a language model at runtime (a local Llama 3.1 8B through Ollama by default, or Claude), as described above.
+
+<!-- TEAM: check this paragraph is accurate for how you worked before submitting. -->
 
 ## Credits
 
