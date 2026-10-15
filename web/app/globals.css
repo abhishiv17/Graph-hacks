@@ -70,6 +70,11 @@ code, pre { font-family: var(--font-mono), ui-monospace, monospace; }
 }
 .btn:hover:not(:disabled) { border-color: var(--forest-mid); background: var(--surface-soft); }
 .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+/* Top-bar links: plain words, the current page underlined in mint (like a hand-drawn stroke). */
+.nav-link { position: relative; border-radius: 8px; padding: .45rem .7rem; font-size: .93rem; font-weight: 500; color: var(--ink); white-space: nowrap; }
+.nav-link:hover { color: var(--ink-strong); background: var(--surface-soft); }
+.nav-link[data-active] { color: var(--ink-strong); font-weight: 600; }
+.nav-link[data-active]::after { content: ""; position: absolute; left: .7rem; right: .7rem; bottom: -.15rem; height: 3px; border-radius: 3px; background: var(--amber); }
 .btn-primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
 .btn-danger { color: var(--bad); border-color: #e3c3be; }
 .btn-danger:hover:not(:disabled) { background: var(--bad-soft); border-color: var(--bad-mark); }
@@ -141,7 +146,9 @@ code, pre { font-family: var(--font-mono), ui-monospace, monospace; }
 .flow-slow { stroke-dasharray: 2 16; animation: flow 2.2s linear infinite; }
 .pulse-bad { animation: pulse-bad 1.6s ease-in-out infinite; }
 @keyframes flow { to { stroke-dashoffset: -34; } }
+.pulse-soft { animation: pulse-soft 2.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes pulse-bad { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) {
-  .flow, .flow-slow, .pulse-bad { animation: none !important; }
+  .flow, .flow-slow, .pulse-bad, .pulse-soft { animation: none !important; }
 }

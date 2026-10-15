@@ -15,11 +15,15 @@ export const linkKey = (l: { loop_id: string; from_pair: string; to_pair: string
 
 const MIN_K = 1, MAX_K = 14;
 const HOME: View = { k: 1, x: 0, y: 0 };
+// A light map: ivory land on a soft sea, so the donations (not the map) carry the colour.
 const C = {
-  sea: "#0B1E19", land: "#1A3D33", landEdge: "#4F8A73", states: "rgba(166,216,181,0.16)", neighbour: "#132C26",
-  failed: "#E08A80",  // donation lines take their organ's colour (lib/organs.ts)
-  selected: "#FFFFFF", city: "#0F2621", cityRing: "#A6D8B5",
+  sea: "#E3EEEC", land: "#FBFAF6", landEdge: "#9DB8A8", states: "rgba(44,90,75,0.16)", neighbour: "#EEF1EA",
+  failed: "#D4574B",
+  selected: "#183B32", city: "#FFFFFF", cityRing: "#2C5A4B",
 };
+// Donation lines on the light map: kidney green and liver amber, deeper when the swap is in focus.
+const MAP_LINE: Record<string, [string, string]> = { kidney: ["#6FB08E", "#16764C"], liver: ["#DDB06C", "#B0670F"] };
+const lineOf = (organ: string | null | undefined, focus: boolean) => (MAP_LINE[organ ?? "kidney"] ?? MAP_LINE.kidney)[focus ? 1 : 0];
 
 type Drawn = {
   link: PoolLink; key: string; d: string; hit: string; arrow: Pt; angle: number; from: string; to: string; self: boolean;
@@ -217,8 +221,8 @@ export default function PoolMap({ hospitals, loops, links, focusLoop, selectedLi
            onPointerLeave={() => setHover(null)}>
         <defs>
           <radialGradient id="pm-land" cx="48%" cy="58%" r="70%">
-            <stop offset="0" stopColor="#1F4A3D" />
-            <stop offset="1" stopColor="#163A30" />
+            <stop offset="0" stopColor="#FFFFFF" />
+            <stop offset="1" stopColor="#F1F5EE" />
           </radialGradient>
           <filter id="pm-glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="2.5" result="b" />
@@ -227,7 +231,7 @@ export default function PoolMap({ hospitals, loops, links, focusLoop, selectedLi
         </defs>
         <rect data-bg="1" x={-MAP_W} y={-MAP_H} width={MAP_W * 3} height={MAP_H * 3} fill={C.sea} />
         <g style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${k})`, transformOrigin: "0 0", transition: animate ? "transform 600ms cubic-bezier(.2,.7,.2,1)" : undefined }}>
-          <path data-bg="1" d={NEIGHBOURS} fill={C.neighbour} stroke="rgba(166,216,181,0.10)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
+          <path data-bg="1" d={NEIGHBOURS} fill={C.neighbour} stroke="rgba(44,90,75,0.12)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
           <path data-bg="1" d={INDIA} fill="url(#pm-land)" stroke={C.landEdge} strokeWidth={1.3} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
           <path d={STATE_LINES} fill="none" stroke={C.states} strokeWidth={0.8} vectorEffect="non-scaling-stroke" pointerEvents="none" />
 
@@ -240,9 +244,9 @@ export default function PoolMap({ hospitals, loops, links, focusLoop, selectedLi
             const hot = hover?.key === d.key;
             const dim = (!!focusLoop && !inFocus && !touches(d)) || (!!selectedCity && !touches(d) && !inFocus);
             const org = organOf(l);
-            const color = failed ? C.failed : sel ? C.selected : inFocus ? org.lineFocus : org.line;
+            const color = failed ? C.failed : sel ? C.selected : lineOf(org.name, inFocus);
             const width = sel ? 3.6 : inFocus ? 2.8 : hot ? 2.6 : 1.5;
-            const opacity = sel || inFocus || hot ? 1 : dim ? 0.18 : brokenLoop ? 0.5 : 0.62;
+            const opacity = sel || inFocus || hot ? 1 : dim ? 0.15 : brokenLoop ? 0.5 : 0.7;
             const label = `${city.get(d.from)?.city} donor to ${city.get(d.to)?.city} patient, ${l.from_pair} to ${l.to_pair}, ${l.loop_id}${failed ? ", failed" : l.p_success != null ? `, ${Math.round(l.p_success * 100)}% likely to hold` : ""}`;
             return (
               <g key={d.key} role="button" tabIndex={0} aria-label={label} aria-pressed={sel}
@@ -276,14 +280,14 @@ export default function PoolMap({ hospitals, loops, links, focusLoop, selectedLi
                  onClick={() => { if (!wasDrag()) onSelectCity(h.code); }}
                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectCity(h.code); } }}
                  style={{ cursor: "pointer" }}>
-                {hot && <circle r={r + 6} fill="rgba(166,216,181,0.18)" />}
+                {hot && <circle r={r + 6} fill="rgba(44,90,75,0.14)" />}
                 <circle r={r} fill={hot ? C.cityRing : C.city} stroke={hot ? "#FFFFFF" : C.cityRing} strokeWidth={2} />
-                <text x={r + 5} y={4} fontSize={hot ? 13.5 : 12} fontWeight={hot ? 700 : 600} fill={hot ? "#FFFFFF" : "#CFE3D6"}
-                      style={{ fontFamily: "var(--font-sans)", paintOrder: "stroke", stroke: "#0B1E19", strokeWidth: 3.5, pointerEvents: "none" }}>
+                <text x={r + 5} y={4} fontSize={hot ? 13.5 : 12} fontWeight={hot ? 700 : 600} fill={hot ? "#183B32" : "#34433D"}
+                      style={{ fontFamily: "var(--font-sans)", paintOrder: "stroke", stroke: "#FBFAF6", strokeWidth: 3.5, pointerEvents: "none" }}>
                   {h.city}
                 </text>
                 {k > 2.2 && (
-                  <text x={r + 5} y={18} fontSize={10.5} fill="#8FAF9D" style={{ fontFamily: "var(--font-sans)", paintOrder: "stroke", stroke: "#0B1E19", strokeWidth: 4, pointerEvents: "none" }}>
+                  <text x={r + 5} y={18} fontSize={10.5} fill="#66736B" style={{ fontFamily: "var(--font-sans)", paintOrder: "stroke", stroke: "#FBFAF6", strokeWidth: 4, pointerEvents: "none" }}>
                     {h.pairs} pairs
                   </text>
                 )}
@@ -294,34 +298,34 @@ export default function PoolMap({ hospitals, loops, links, focusLoop, selectedLi
       </svg>
 
       {/* zoom controls */}
-      <div className="absolute left-3 top-3 flex flex-col overflow-hidden rounded-lg border" style={{ borderColor: "rgba(166,216,181,0.25)", background: "rgba(11,30,25,0.85)" }}>
+      <div className="absolute left-3 top-3 flex flex-col overflow-hidden rounded-lg border" style={{ borderColor: "var(--line)", background: "rgba(255,255,255,0.95)" }}>
         {[
           { label: "Zoom in", icon: "+", fn: () => zoomAt([MAP_W / 2, MAP_H / 2], 1.6, true) },
           { label: "Zoom out", icon: "−", fn: () => zoomAt([MAP_W / 2, MAP_H / 2], 1 / 1.6, true) },
         ].map((b) => (
           <button key={b.label} type="button" aria-label={b.label} title={b.label} onClick={b.fn}
-                  className="h-9 w-9 grid place-items-center text-lg font-semibold hover:bg-white/10" style={{ color: "#E6F0EA" }}>{b.icon}</button>
+                  className="h-9 w-9 grid place-items-center text-lg font-semibold hover:bg-[var(--surface-soft)]" style={{ color: "#1F2C27" }}>{b.icon}</button>
         ))}
         <button type="button" aria-label="Show all of India" title="Show all of India" onClick={() => { setAnimate(true); setView(HOME); }}
-                className="h-9 w-9 grid place-items-center hover:bg-white/10 border-t" style={{ color: "#E6F0EA", borderColor: "rgba(166,216,181,0.2)" }}>
+                className="h-9 w-9 grid place-items-center hover:bg-[var(--surface-soft)] border-t" style={{ color: "#1F2C27", borderColor: "var(--line)" }}>
           <Icon name="reset" size={16} />
         </button>
       </div>
       {focus && (
         <button type="button" onClick={() => fitTo(focus.pairs.map((p) => p.code))}
-                className="absolute left-14 top-3 rounded-lg border px-3 h-9 text-xs font-semibold hover:bg-white/10"
-                style={{ borderColor: "rgba(166,216,181,0.25)", background: "rgba(11,30,25,0.85)", color: "#E6F0EA" }}>
+                className="absolute left-14 top-3 rounded-lg border px-3 h-9 text-xs font-semibold hover:bg-[var(--surface-soft)]"
+                style={{ borderColor: "var(--line)", background: "rgba(255,255,255,0.95)", color: "#1F2C27" }}>
           Zoom to {focus.loop_id}
         </button>
       )}
 
       {/* legend and hint */}
-      <div className="absolute left-3 bottom-3 rounded-lg px-3 py-2 text-[0.72rem] space-y-1 pointer-events-none" style={{ background: "rgba(11,30,25,0.85)", color: "#B9CBBF" }}>
+      <div className="absolute left-3 bottom-3 rounded-lg px-3 py-2 text-[0.72rem] space-y-1 pointer-events-none" style={{ background: "rgba(255,255,255,0.92)", color: "#4A5952", border: "1px solid var(--line)" }}>
         {ORGAN_NAMES.filter((o) => links.some((l) => (l.organ ?? "kidney") === o)).map((o) => (
-          <p key={o} className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={ORGANS[o].line} strokeWidth="1.8" /></svg>{ORGANS[o].label} donation <span style={{ color: "#8FAF9D" }}>(brighter in focus)</span></p>
+          <p key={o} className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={lineOf(o, false)} strokeWidth="2" /></svg>{ORGANS[o].label} donation <span style={{ color: "#66736B" }}>(deeper in focus)</span></p>
         ))}
         <p className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={C.failed} strokeWidth="2" strokeDasharray="5 4" /></svg>Failed test or work-up</p>
-        <p className="pt-1" style={{ color: "#8FAF9D" }}>Scroll to zoom · drag to move · click a line</p>
+        <p className="pt-1" style={{ color: "#66736B" }}>Scroll to zoom · drag to move · click a line</p>
       </div>
 
       {hovered && hover && wrap.current && (() => {

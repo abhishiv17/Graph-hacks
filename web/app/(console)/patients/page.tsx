@@ -1,10 +1,12 @@
 "use client";
 import Link from "next/link";
+import { Family } from "@/components/Kin";
 import { EmptyState, ErrorState, Loading, OrganTag, PageHeader, Tag } from "@/components/app/ui";
 import { Icon } from "@/components/app/icons";
 import { useAction, useResource } from "@/lib/data/source";
 import { organOf } from "@/lib/organs";
-import type { PersonaSummary } from "@/lib/data/types";
+import type { PersonaSummary, PairFacts } from "@/lib/data/types";
+import { useMemo, useState } from "react";
 import { STAGE_TONE } from "@/lib/personas";
 
 const STEPS = [
@@ -19,8 +21,10 @@ export default function Patients() {
   const act = useAction();
   return (
     <div>
-      <PageHeader title="Demo patients"
-        description="No sign-up. Open a synthetic patient, move time forward, and watch the agents take them from a falling lab result to a transplant." />
+      <PageHeader title="Who is waiting, and what is being done for them?"
+        description="Every family in the shared pool has a patient who needs a transplant and a relative who wants to donate, but can't give to them directly. Two of them are followed week by week; open any family to see who it can swap with." />
+
+      <h2 className="text-[1.05rem] font-semibold mb-3" style={{ color: "var(--ink-strong)" }}>Followed week by week</h2>
 
       <ol className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-8">
         {STEPS.map((s, i) => (
@@ -49,9 +53,7 @@ export default function Patients() {
                   <Link href={`/patients/${p.id}`} className="panel block p-5 h-full transition-shadow hover:shadow-md">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <span className="grid h-11 w-11 place-items-center rounded-full text-sm font-bold" style={{ background: "var(--sage)", color: o.tone }}>
-                          {p.name.split(" ").map((w) => w[0]).join("")}
-                        </span>
+                        <Family id={p.id} size={46} />
                         <div>
                           <p className="text-lg font-semibold leading-tight" style={{ color: "var(--ink-strong)" }}>{p.name}</p>
                           <p className="text-sm muted">{p.age} · {p.city} · {p.pair_id}</p>
@@ -75,7 +77,67 @@ export default function Patients() {
             })}
           </ul>
         )}
+      <AllFamilies />
       <p className="mt-6 text-xs muted">Synthetic people and readings. A software prototype, not a clinical tool. Sign-up and login are a later feature.</p>
     </div>
+  );
+}
+
+const STATUS: Record<string, string> = { waiting: "Waiting for a swap", offered: "Swap offered", testing: "Tests under way", locked: "Transplant booked",
+  transplanted: "Transplant done", committee: "With the committee" };
+
+/** Every family in the shared pool, each one a door into the graph explorer. */
+function AllFamilies() {
+  const r = useResource<{ pairs: PairFacts[] }>("pairs", (a) => a.pairs(), 15000);
+  const [q, setQ] = useState("");
+  const [organ, setOrgan] = useState<"all" | "kidney" | "liver">("all");
+  const [waiting, setWaiting] = useState(false);
+  const [n, setN] = useState(24);
+  const rows = useMemo(() => (r.data?.pairs ?? []).filter((p) =>
+    (organ === "all" || p.organ === organ) && (!waiting || p.status === "waiting")
+    && `${p.pair_id} ${p.city} ${p.donor_relation}`.toLowerCase().includes(q.trim().toLowerCase())), [r.data, q, organ, waiting]);
+  return (
+    <section className="mt-10" aria-labelledby="all-h">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 id="all-h" className="text-[1.05rem] font-semibold" style={{ color: "var(--ink-strong)" }}>Every family in the pool{r.data ? ` · ${r.data.pairs.length}` : ""}</h2>
+          <p className="text-sm muted">Open one to see its patient and donor broken into parts, why the donor can&rsquo;t give to their own patient, and who they can swap with, hop by hop.</p>
+        </div>
+        <input value={q} onChange={(e) => { setQ(e.target.value); setN(24); }} placeholder="Search ID, city or relation" aria-label="Search families"
+               className="w-60 rounded-full border px-4 py-2 text-sm outline-none focus:border-[var(--forest-mid)]" style={{ borderColor: "var(--line)", background: "var(--surface)" }} />
+        <div className="inline-flex rounded-full border p-0.5" style={{ borderColor: "var(--line)", background: "var(--surface)" }} role="radiogroup" aria-label="Program">
+          {(["all", "kidney", "liver"] as const).map((o) => (
+            <button key={o} role="radio" aria-checked={organ === o} onClick={() => { setOrgan(o); setN(24); }} className="rounded-full px-3 py-1 text-xs font-semibold capitalize"
+                    style={{ background: organ === o ? "var(--forest)" : "transparent", color: organ === o ? "#fff" : "var(--ink)" }}>{o === "all" ? "Both" : o}</button>
+          ))}
+        </div>
+        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={waiting} onChange={(e) => setWaiting(e.target.checked)} /> Still waiting</label>
+      </div>
+      {r.error && !r.data ? <ErrorState error={r.error} onRetry={r.reload} what="the families in the pool" /> : !r.data ? <Loading rows={4} /> : (
+        <>
+          <ul className="mt-4 grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {rows.slice(0, n).map((p) => (
+              <li key={p.pair_id}>
+                <Link href={`/families/${p.pair_id}`} className="panel flex items-center gap-3 p-3.5 h-full transition-shadow hover:shadow-md">
+                  <Family id={p.pair_id} size={34} className="shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-2 font-semibold" style={{ color: "var(--ink-strong)" }}>{p.pair_id} <span className="text-sm font-normal muted truncate">{p.city}</span></p>
+                    <p className="text-xs muted truncate">The {p.donor_relation} ({p.donor_abo}) wants to give to the patient ({p.patient_abo}){p.organ === "kidney" && p.cpra != null ? ` · cPRA ${p.cpra}%` : p.meld != null ? ` · MELD ${p.meld}` : ""}</p>
+                    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                      <OrganTag organ={p.organ} />
+                      <span className="rounded-full px-2 py-0.5" style={{ background: "var(--surface-soft)" }}>{STATUS[p.status] ?? p.status}{p.loop_id ? ` · ${p.loop_id}` : ""}</span>
+                      <span className="muted tnum">gives to {p.gives_to} · from {p.receives_from}</span>
+                    </p>
+                  </div>
+                  <Icon name="chevron" size={16} className="muted shrink-0" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {rows.length === 0 && <p className="mt-4 text-sm muted">No family matches.</p>}
+          {rows.length > n && <button className="btn mt-4" onClick={() => setN((x) => x + 48)}>Show more ({rows.length - n} left)</button>}
+        </>
+      )}
+    </section>
   );
 }

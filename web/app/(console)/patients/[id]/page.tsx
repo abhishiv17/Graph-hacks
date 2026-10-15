@@ -3,12 +3,14 @@ import Link from "next/link";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorState, Loading, OrganTag, Tag } from "@/components/app/ui";
 import { Icon } from "@/components/app/icons";
+import { Family } from "@/components/Kin";
+import FamilyExplorer from "@/components/app/FamilyExplorer";
 import TrendChart from "@/components/app/TrendChart";
 import MiniMap, { type MiniLink } from "@/components/app/MiniMap";
 import { useAction, useData, useResource } from "@/lib/data/source";
 import { organOf } from "@/lib/organs";
 import { STAGE_TONE, fmtDay } from "@/lib/personas";
-import type { AgentState, ChatMessage, CoordinatorStep, PersonaFinding, PersonaHandoff, PersonaJourney, PersonaSearch } from "@/lib/data/types";
+import type { AgentState, ChatMessage, CoordinatorStep, MemoryRead, PersonaFinding, PersonaHandoff, PersonaJourney, PersonaSearch } from "@/lib/data/types";
 
 const fmtMonth = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
 const monthKey = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
@@ -73,6 +75,36 @@ function HowItDecided({ f }: { f: PersonaFinding }) {
         </ol>
       )}
       {f.safety_net && <p className="mt-1 text-xs" style={{ color: "var(--warn)" }}>{f.safety_net}</p>}
+    </div>
+  );
+}
+
+const MEMORY_KIND: Record<MemoryRead["kind"], string> = { episodic: "what happened", semantic: "beliefs", procedural: "playbook", shared: "shared state" };
+
+/** What the agent read from memory before acting, and which agent wrote it: one agent's finding is the next one's input. */
+function ReadFirst({ read }: { read?: MemoryRead[] | null }) {
+  const [open, setOpen] = useState(false);
+  if (!read?.length) return null;
+  const from = [...new Set(read.filter((r) => r.n > 0).map((r) => r.written_by))];
+  return (
+    <div className="mt-1.5">
+      <button className="text-xs font-semibold inline-flex items-center gap-1" style={{ color: "var(--forest)" }} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <Icon name="chevron" size={12} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
+        Read before acting: {read.map((r) => `${r.n} ${r.memory}`).join(" · ")}
+      </button>
+      {!open && from.length > 0 && <p className="text-xs muted ml-4">written by {from.join(", ")}</p>}
+      {open && (
+        <ul className="mt-1.5 ml-4 space-y-1.5 text-xs">
+          {read.map((r, i) => (
+            <li key={i}>
+              <span style={{ color: "var(--ink-strong)" }}>{r.n} {r.memory}</span>
+              <span className="muted"> · {MEMORY_KIND[r.kind] ?? r.kind} · from {r.written_by}</span>
+              <span className="block muted">→ {r.used}</span>
+              {r.detail.length > 0 && <span className="block muted">{r.detail.join("; ")}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -299,9 +331,11 @@ function Months({ j, handoffs }: { j: PersonaJourney; handoffs: Map<string, Pers
                           <span className="font-semibold">{f.kind === "world" ? (f.week > 0 ? "Hospitals: " : "Hospital visit · ") : f.kind === "decision" || f.kind === "case" ? "" : "Health watch: "}</span>
                           {f.text}
                         </p>
+                        <ReadFirst read={f.read} />
                         {f.kind === "decision" && <HowItDecided f={f} />}
                         {(handoffs.get(f.finding_id) ?? []).map((h) => (
-                          <p key={h.task_id} className="text-xs muted mt-0.5 ml-3">{h.agent}: {h.result ?? h.payload.what ?? h.payload.why}</p>
+                          <p key={h.task_id} className="text-xs muted mt-0.5 ml-3">{h.agent}: {h.result ?? h.payload.what ?? h.payload.why}
+                            {h.read && <span className="block text-[0.7rem]">{h.read}</span>}</p>
                         ))}
                       </li>
                     ))}
@@ -348,12 +382,15 @@ export default function Journey({ params }: { params: Promise<{ id: string }> })
   return (
     <div>
       <header className="flex flex-wrap items-start justify-between gap-4 pb-5 mb-5 border-b" style={{ borderColor: "var(--line)" }}>
-        <div className="min-w-0 max-w-2xl">
+        <div className="min-w-0 max-w-2xl flex items-start gap-4">
+          <Family id={id} size={64} className="shrink-0 hidden sm:inline-flex" />
+          <div className="min-w-0">
           <h1 className="text-[1.75rem] leading-tight font-semibold tracking-[-0.02em] flex items-center gap-3" style={{ color: "var(--ink-strong)" }}>
             {j.name} <OrganTag organ={j.organ} />
           </h1>
           <p className="mt-1 text-sm muted">{j.age} · {j.city} · {j.pair_id}</p>
           <p className="mt-2 text-[0.94rem]">{j.story}</p>
+          </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-2">
@@ -428,6 +465,11 @@ export default function Journey({ params }: { params: Promise<{ id: string }> })
                     color={o.tone} worse={j.measure.better === "higher" ? "down" : "up"} />
       </section>
 
+      <section className="mt-8" aria-labelledby="graph-h">
+        <h2 id="graph-h" className="text-[1.02rem] font-semibold" style={{ color: "var(--ink-strong)" }}>{first}&rsquo;s family in the graph</h2>
+        <p className="text-sm muted mt-0.5 mb-3">Why {first}&rsquo;s donor can&rsquo;t give to {first} directly, and which families they can swap with. Change the hops to see the 2-way and 3-way swaps close back.</p>
+        <FamilyExplorer pair={j.pair_id} height={540} />
+      </section>
       <div className="mt-8"><Months j={j} handoffs={handoffs} /></div>
       <p className="mt-8 text-xs muted">Synthetic people, readings and approvals. A software prototype, not a clinical tool.</p>
     </div>

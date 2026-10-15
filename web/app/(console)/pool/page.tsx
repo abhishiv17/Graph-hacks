@@ -135,7 +135,7 @@ function LivePool() {
       </dl>
 
       {res.error && !res.data ? <ErrorState error={res.error} onRetry={res.reload} what="the pool" /> : (
-        <section className="canvas-dark overflow-hidden" aria-label="Live map of planned donations">
+        <section className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--line)", background: "var(--surface)" }} aria-label="Live map of planned donations">
           <div className="grid lg:grid-cols-[minmax(0,1.5fr)_minmax(340px,1fr)]">
             <div className="relative">
               {!pool ? <div className="h-[560px] lg:h-[680px]" /> : (
@@ -157,20 +157,20 @@ function LivePool() {
                 <>
                   {focus && (
                     <div className="p-5 sm:p-6 border-b" style={panelBorder}>
-                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8FAF9D" }}>Swap in focus · bright lines on the map</p>
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#66736B" }}>Swap in focus · bold lines on the map</p>
                       <div className="mt-2 flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-display text-2xl leading-tight" style={{ color: "#FFFFFF" }}>{focus.loop_id} <span className="text-base" style={{ color: "#A9BFB2" }}>· {organOf(focus).label.toLowerCase()} · {focus.kind}</span></p>
-                          <p className="mt-1 text-[0.95rem]" style={{ color: "#CFE3D6" }}>{loopRoute(focus)}</p>
+                          <p className="font-display text-2xl leading-tight" style={{ color: "#183B32" }}>{focus.loop_id} <span className="text-base" style={{ color: "#66736B" }}>· {organOf(focus).label.toLowerCase()} · {focus.kind}</span></p>
+                          <p className="mt-1 text-[0.95rem]" style={{ color: "#34433D" }}>{loopRoute(focus)}</p>
                         </div>
                         <DarkStatus status={focus.status} repair={tasks.has(focus.loop_id)} />
                       </div>
                       {focus.status === "broken" ? (
-                        <p className="mt-4 text-sm" style={{ color: "#E08A80" }}>A link failed, so this loop can&rsquo;t go ahead as planned. Open it to review the repair.</p>
+                        <p className="mt-4 text-sm" style={{ color: "#C2463A" }}>A link failed, so this loop can&rsquo;t go ahead as planned. Open it to review the repair.</p>
                       ) : (
-                        <div className="mt-4 grid grid-cols-2 gap-4 text-sm" style={{ color: "#A9BFB2" }}>
-                          <div><span className="block font-display text-2xl tnum" style={{ color: "#F7F6F0" }}>{pct(focus.p_success)}</span><Term k="chance" dark>chance every link holds</Term></div>
-                          <div><span className="block font-display text-2xl tnum" style={{ color: "#F7F6F0" }}>{focus.expected_tx} <span className="text-base">of {focus.pairs.length}</span></span><Term k="expected" dark>expected transplants</Term>{focus.has_fallback && <> · has a <Term k="fallback" dark>fallback</Term></>}</div>
+                        <div className="mt-4 grid grid-cols-2 gap-4 text-sm" style={{ color: "#66736B" }}>
+                          <div><span className="block font-display text-2xl tnum" style={{ color: "#1F2C27" }}>{pct(focus.p_success)}</span><Term k="chance">chance every link holds</Term></div>
+                          <div><span className="block font-display text-2xl tnum" style={{ color: "#1F2C27" }}>{focus.expected_tx} <span className="text-base">of {focus.pairs.length}</span></span><Term k="expected">expected transplants</Term>{focus.has_fallback && <> · has a <Term k="fallback">fallback</Term></>}</div>
                         </div>
                       )}
                       <Link href={`/swaps/${focus.loop_id}`} className="mt-5 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold"
@@ -179,18 +179,18 @@ function LivePool() {
                       </Link>
                     </div>
                   )}
-                  <p className="px-5 sm:px-6 pt-4 pb-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8FAF9D" }}>All planned swaps · {loops.length} · click one to light it up</p>
+                  <p className="px-5 sm:px-6 pt-4 pb-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#66736B" }}>All planned swaps · {loops.length} · click one to light it up</p>
                   <ul className="flex-1 overflow-y-auto max-h-[360px] lg:max-h-none px-2 sm:px-3 pb-3">
-                    {!pool ? <li className="px-3 py-2 text-sm" style={{ color: "#A9BFB2" }}>Loading…</li> : loops.map((l) => (
+                    {!pool ? <li className="px-3 py-2 text-sm" style={{ color: "#66736B" }}>Loading…</li> : loops.map((l) => (
                       <li key={l.loop_id}>
-                        <button className="w-full text-left flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-white/5"
-                                aria-pressed={shown === l.loop_id} style={{ background: shown === l.loop_id ? "rgba(166,216,181,0.12)" : undefined }}
+                        <button className="w-full text-left flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-[var(--surface-soft)]"
+                                aria-pressed={shown === l.loop_id} style={{ background: shown === l.loop_id ? "rgba(44,90,75,0.08)" : undefined }}
                                 onClick={() => pickLoop(l.loop_id)}>
-                          <span className="h-2 w-2 rounded-full shrink-0" style={{ background: l.status === "broken" || tasks.has(l.loop_id) ? "#E08A80" : l.status === "testing" ? "#E6B566" : "#A6D8B5" }} aria-hidden="true" />
-                          <span className="font-semibold tnum text-sm w-14 shrink-0" style={{ color: "#F7F6F0" }}>{l.loop_id}</span>
+                          <span className="h-2 w-2 rounded-full shrink-0" style={{ background: l.status === "broken" || tasks.has(l.loop_id) ? "#C2463A" : l.status === "testing" ? "#D99A35" : "#2C8A62" }} aria-hidden="true" />
+                          <span className="font-semibold tnum text-sm w-14 shrink-0" style={{ color: "#1F2C27" }}>{l.loop_id}</span>
                           <span className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] w-10 shrink-0" style={{ color: organOf(l).line }}>{organOf(l).label}</span>
-                          <span className="flex-1 truncate text-sm" style={{ color: "#B9CBBF" }}>{loopRoute(l)}</span>
-                          <span className="text-xs shrink-0" style={{ color: "#8FAF9D" }}>{statusOf(l.status, tasks.has(l.loop_id)).label}</span>
+                          <span className="flex-1 truncate text-sm" style={{ color: "#4A5952" }}>{loopRoute(l)}</span>
+                          <span className="text-xs shrink-0" style={{ color: "#66736B" }}>{statusOf(l.status, tasks.has(l.loop_id)).label}</span>
                         </button>
                       </li>
                     ))}
@@ -314,20 +314,20 @@ function AgentPulse({ s, includes }: { s?: AgentState; includes: (organ?: string
   const mine = (s.last_actions ?? []).filter((a) => (a.match(/\b[SL]-\d{4}\b/g) ?? []).every((id) => includes(organOfLoop(id)?.name)));
   const last = mine[0];
   return (
-    <div className="absolute right-4 top-4 sm:right-5 sm:top-4 max-w-[16rem] text-right pointer-events-none rounded-lg px-3 py-2" style={{ background: "rgba(11,30,25,0.8)" }} aria-live="polite">
-      <p className="inline-flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8FAF9D" }}>
-        <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style={{ background: "#A6D8B5" }} /><span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: "#A6D8B5" }} /></span>
+    <div className="absolute right-4 top-4 sm:right-5 sm:top-4 max-w-[16rem] text-right pointer-events-none rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.92)" }} aria-live="polite">
+      <p className="inline-flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#66736B" }}>
+        <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style={{ background: "#2C8A62" }} /><span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: "#2C8A62" }} /></span>
         Agents on watch
       </p>
-      <p className="mt-1 text-xs" style={{ color: "#B9CBBF" }}>{ago === null ? "Starting…" : `Checked the graph ${ago < 5 ? "just now" : `${ago}s ago`}`}</p>
-      {last && <p className="mt-0.5 text-xs truncate" style={{ color: "#CFE3D6" }} title={mine.join(" · ")}>{last}</p>}
+      <p className="mt-1 text-xs" style={{ color: "#4A5952" }}>{ago === null ? "Starting…" : `Checked the graph ${ago < 5 ? "just now" : `${ago}s ago`}`}</p>
+      {last && <p className="mt-0.5 text-xs truncate" style={{ color: "#34433D" }} title={mine.join(" · ")}>{last}</p>}
     </div>
   );
 }
 
 function DarkStatus({ status, repair }: { status: string; repair: boolean }) {
   const s = statusOf(status, repair);
-  const c = s.tone === "bad" ? ["#3A2522", "#F6D6D1"] : s.tone === "warn" ? ["#3A3121", "#F3DCA9"] : ["rgba(166,216,181,0.16)", "#CFEBD8"];
+  const c = s.tone === "bad" ? ["#FBEDEB", "#9E4238"] : s.tone === "warn" ? ["#FBF1DE", "#8A5A12"] : ["var(--ok-soft)", "#1F6B48"];
   return <span className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: c[0], color: c[1] }} title={s.hint}>{s.label}</span>;
 }
 
@@ -336,18 +336,18 @@ function byOrgan(pool: Pool | undefined, pick: (o: { loops: number; expected_tx:
   return ORGAN_NAMES.map((o) => `${o} ${pool?.by_organ?.[o] ? pick(pool.by_organ[o]) : 0}`).join(" · ");
 }
 
-const panelBorder = { borderColor: "rgba(166,216,181,0.14)" };
+const panelBorder = { borderColor: "var(--line)" };
 const kicker = "text-[0.7rem] uppercase tracking-[0.1em]";
 
 function PanelHead({ label, title, sub, onClose }: { label: string; title: React.ReactNode; sub?: React.ReactNode; onClose: () => void }) {
   return (
     <div className="p-5 sm:p-6 border-b" style={panelBorder}>
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8FAF9D" }}>{label}</p>
-        <button onClick={onClose} className="rounded-md p-1 hover:bg-white/10" style={{ color: "#CFE3D6" }} aria-label="Close and go back to the swap list"><Icon name="close" size={16} /></button>
+        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#66736B" }}>{label}</p>
+        <button onClick={onClose} className="rounded-md p-1 hover:bg-[var(--surface-soft)]" style={{ color: "#34433D" }} aria-label="Close and go back to the swap list"><Icon name="close" size={16} /></button>
       </div>
-      <p className="mt-1 font-display text-[1.45rem] leading-tight" style={{ color: "#FFFFFF" }}>{title}</p>
-      {sub && <p className="mt-1 text-sm" style={{ color: "#A9BFB2" }}>{sub}</p>}
+      <p className="mt-1 font-display text-[1.45rem] leading-tight" style={{ color: "#183B32" }}>{title}</p>
+      {sub && <p className="mt-1 text-sm" style={{ color: "#66736B" }}>{sub}</p>}
     </div>
   );
 }
@@ -360,53 +360,53 @@ function LinkPanel({ link, pool, onClose, onStep }: { link: PoolLink; pool: Pool
   const i = ring.findIndex((l) => l.pos === link.pos);
   const failed = !!link.failed_cause || link.status === "failed";
   const p = link.p_success ?? 0;
-  const pill = "rounded-full border px-3 py-1 text-xs hover:bg-white/10";
+  const pill = "rounded-full border px-3 py-1 text-xs hover:bg-[var(--surface-soft)]";
   const o = organOf(link);
   return (
     <div className="flex-1 overflow-y-auto">
       <PanelHead label="One planned donation" onClose={onClose}
-        title={<>{where(link.from_pair)} <span style={{ color: "#8FAF9D" }}>→</span> {where(link.to_pair)}</>}
+        title={<>{where(link.from_pair)} <span style={{ color: "#66736B" }}>→</span> {where(link.to_pair)}</>}
         sub={<>The donor from family {link.from_pair} gives {o.gift} to the patient of family {link.to_pair}.</>} />
-      <div className="p-5 sm:p-6 space-y-5 text-sm" style={{ color: "#CFE3D6" }}>
+      <div className="p-5 sm:p-6 space-y-5 text-sm" style={{ color: "#34433D" }}>
         <div className="grid grid-cols-2 gap-4">
-          <div><p className={kicker} style={{ color: "#8FAF9D" }}>Donor</p><p className="mt-0.5" style={{ color: "#F7F6F0" }}>{link.donor_relation}, blood group {link.donor_abo}{link.lobe ? <>, {link.lobe} lobe (<Term k="grwr" dark>GRWR</Term> {link.grwr}%)</> : null}</p><p className="text-xs">{where(link.from_pair)} · {link.from_pair}</p></div>
-          <div><p className={kicker} style={{ color: "#8FAF9D" }}>Patient</p><p className="mt-0.5" style={{ color: "#F7F6F0" }}>blood group {link.patient_abo}, {o.name === "liver" ? <><Term k="meld" dark>MELD</Term> {link.patient_meld}, {link.patient_weight_kg} kg</> : <><Term k="cpra" dark>cPRA</Term> {link.patient_cpra}%</>}</p><p className="text-xs">{where(link.to_pair)} · {link.to_pair}</p></div>
+          <div><p className={kicker} style={{ color: "#66736B" }}>Donor</p><p className="mt-0.5" style={{ color: "#1F2C27" }}>{link.donor_relation}, blood group {link.donor_abo}{link.lobe ? <>, {link.lobe} lobe (<Term k="grwr">GRWR</Term> {link.grwr}%)</> : null}</p><p className="text-xs">{where(link.from_pair)} · {link.from_pair}</p></div>
+          <div><p className={kicker} style={{ color: "#66736B" }}>Patient</p><p className="mt-0.5" style={{ color: "#1F2C27" }}>blood group {link.patient_abo}, {o.name === "liver" ? <><Term k="meld">MELD</Term> {link.patient_meld}, {link.patient_weight_kg} kg</> : <><Term k="cpra">cPRA</Term> {link.patient_cpra}%</>}</p><p className="text-xs">{where(link.to_pair)} · {link.to_pair}</p></div>
         </div>
         {failed ? (
-          <div className="rounded-lg px-3 py-2.5" style={{ background: "#3A2522", color: "#F6D6D1" }}>
+          <div className="rounded-lg px-3 py-2.5" style={{ background: "#FBEDEB", color: "#9E4238" }}>
             <p className="font-semibold">This donation failed its {o.test}</p>
             <p className="mt-0.5">{link.failed_detail ?? link.failed_cause}. The graph remembers it as a <code>FAILED</code> edge, so this donor is never proposed to this patient again.</p>
           </div>
         ) : (
           <div>
-            <div className="flex items-baseline justify-between"><span>Chance it holds</span><span className="font-display text-2xl tnum" style={{ color: "#FFFFFF" }}>{Math.round(p * 100)}%</span></div>
-            <div className="mt-1.5 h-2 rounded-full" style={{ background: "rgba(166,216,181,0.15)" }}><div className="h-full rounded-full" style={{ width: `${p * 100}%`, background: "#A6D8B5" }} /></div>
-            <p className="mt-1.5 text-xs" style={{ color: "#8FAF9D" }}>{o.chanceNote}</p>
+            <div className="flex items-baseline justify-between"><span>Chance it holds</span><span className="font-display text-2xl tnum" style={{ color: "#183B32" }}>{Math.round(p * 100)}%</span></div>
+            <div className="mt-1.5 h-2 rounded-full" style={{ background: "var(--line)" }}><div className="h-full rounded-full" style={{ width: `${p * 100}%`, background: "#2C8A62" }} /></div>
+            <p className="mt-1.5 text-xs" style={{ color: "#66736B" }}>{o.chanceNote}</p>
           </div>
         )}
         <div>
-          <p className={kicker} style={{ color: "#8FAF9D" }}>Why the graph says this can work</p>
+          <p className={kicker} style={{ color: "#66736B" }}>Why the graph says this can work</p>
           <ul className="mt-1.5 space-y-1.5">
-            {(link.reasons ?? []).map((r) => <li key={r} className="flex gap-2"><span className="mt-0.5 shrink-0" style={{ color: "#A6D8B5" }}><Icon name="check" size={14} /></span>{r}</li>)}
-            {!link.reasons?.length && <li style={{ color: "#8FAF9D" }}>No live compatibility edge (the link failed).</li>}
+            {(link.reasons ?? []).map((r) => <li key={r} className="flex gap-2"><span className="mt-0.5 shrink-0" style={{ color: "#2C8A62" }}><Icon name="check" size={14} /></span>{r}</li>)}
+            {!link.reasons?.length && <li style={{ color: "#66736B" }}>No live compatibility edge (the link failed).</li>}
           </ul>
         </div>
         {loop && (
-          <div className="rounded-lg border px-3 py-3" style={{ borderColor: "rgba(166,216,181,0.2)" }}>
-            <p>Part of swap <span className="font-semibold" style={{ color: "#FFFFFF" }}>{loop.loop_id}</span> ({loop.kind}): {loopRoute(loop)}. It only goes ahead if all {ring.length} donations in the ring hold.</p>
+          <div className="rounded-lg border px-3 py-3" style={{ borderColor: "var(--line)" }}>
+            <p>Part of swap <span className="font-semibold" style={{ color: "#183B32" }}>{loop.loop_id}</span> ({loop.kind}): {loopRoute(loop)}. It only goes ahead if all {ring.length} donations in the ring hold.</p>
             {ring.length > 1 && (
               <div className="mt-2.5 flex flex-wrap gap-2">
-                <button className={pill} style={{ borderColor: "rgba(166,216,181,0.3)" }} onClick={() => onStep(linkKey(ring[(i - 1 + ring.length) % ring.length]))}>← Previous donation in this swap</button>
-                <button className={pill} style={{ borderColor: "rgba(166,216,181,0.3)" }} onClick={() => onStep(linkKey(ring[(i + 1) % ring.length]))}>Next donation →</button>
+                <button className={pill} style={{ borderColor: "var(--line)" }} onClick={() => onStep(linkKey(ring[(i - 1 + ring.length) % ring.length]))}>← Previous donation in this swap</button>
+                <button className={pill} style={{ borderColor: "var(--line)" }} onClick={() => onStep(linkKey(ring[(i + 1) % ring.length]))}>Next donation →</button>
               </div>
             )}
           </div>
         )}
         <div className="flex flex-wrap gap-2">
           <Link href={`/swaps/${link.loop_id}`} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold" style={{ background: "var(--mint)", color: "var(--forest-deep)" }}>Open swap {link.loop_id} <Icon name="chevron" size={15} /></Link>
-          <Link href={`/case/${link.to_pair}`} className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold hover:bg-white/10" style={{ borderColor: "rgba(166,216,181,0.35)", color: "#E6F0EA" }}>What this patient&rsquo;s family sees</Link>
+          <Link href={`/case/${link.to_pair}`} className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold hover:bg-[var(--surface-soft)]" style={{ borderColor: "var(--line)", color: "#1F2C27" }}>What this patient&rsquo;s family sees</Link>
         </div>
-        <p className="text-xs" style={{ color: "#7E9A8B" }}>Read live from FalkorDB: the <code>CAN_GIVE_TO</code> edge between two <code>Pair</code> nodes (query Q24_loop_links). Synthetic data.</p>
+        <p className="text-xs" style={{ color: "#66736B" }}>Read live from FalkorDB: the <code>CAN_GIVE_TO</code> edge between two <code>Pair</code> nodes (query Q24_loop_links). Synthetic data.</p>
       </div>
     </div>
   );
@@ -424,27 +424,27 @@ function CityPanel({ code, pool, onClose, onPickLoop, onPickLink }: { code: stri
     <div className="flex-1 overflow-y-auto">
       <PanelHead label="Hospital" onClose={onClose} title={h?.city ?? code}
         sub={<>{h?.pairs} families registered here{h?.liver_pairs ? ` (${h.liver_pairs} liver)` : ""}. Names and documents stay in this hospital&rsquo;s own private graph (<code>hosp_{code.toLowerCase()}</code>); only the medical facts matching needs are shared.</>} />
-      <div className="p-5 sm:p-6 space-y-5 text-sm" style={{ color: "#CFE3D6" }}>
+      <div className="p-5 sm:p-6 space-y-5 text-sm" style={{ color: "#34433D" }}>
         <div>
-          <p className={`${kicker} mb-1.5`} style={{ color: "#8FAF9D" }}>Donations in and out · {touching.length} · click to inspect</p>
+          <p className={`${kicker} mb-1.5`} style={{ color: "#66736B" }}>Donations in and out · {touching.length} · click to inspect</p>
           <ul className="space-y-0.5">
             {touching.map((l) => (
               <li key={linkKey(l)}>
-                <button className="w-full text-left rounded-md px-2 py-1.5 hover:bg-white/5 flex justify-between gap-2" onClick={() => onPickLink(linkKey(l))}>
-                  <span>{name(l.from_pair)} → {name(l.to_pair)} <span style={{ color: "#8FAF9D" }}>· {l.loop_id}</span></span>
-                  <span className="tnum" style={{ color: l.failed_cause ? "#E08A80" : "#F7F6F0" }}>{l.failed_cause ? "failed" : l.p_success != null ? `${Math.round(l.p_success * 100)}%` : ""}</span>
+                <button className="w-full text-left rounded-md px-2 py-1.5 hover:bg-[var(--surface-soft)] flex justify-between gap-2" onClick={() => onPickLink(linkKey(l))}>
+                  <span>{name(l.from_pair)} → {name(l.to_pair)} <span style={{ color: "#66736B" }}>· {l.loop_id}</span></span>
+                  <span className="tnum" style={{ color: l.failed_cause ? "#C2463A" : "#1F2C27" }}>{l.failed_cause ? "failed" : l.p_success != null ? `${Math.round(l.p_success * 100)}%` : ""}</span>
                 </button>
               </li>
             ))}
-            {touching.length === 0 && <li style={{ color: "#8FAF9D" }}>No planned donations involve this hospital yet.</li>}
+            {touching.length === 0 && <li style={{ color: "#66736B" }}>No planned donations involve this hospital yet.</li>}
           </ul>
         </div>
         <div>
-          <p className={`${kicker} mb-1.5`} style={{ color: "#8FAF9D" }}>Swaps with a family from {h?.city} · {loops.length}</p>
+          <p className={`${kicker} mb-1.5`} style={{ color: "#66736B" }}>Swaps with a family from {h?.city} · {loops.length}</p>
           <ul className="space-y-0.5">
             {loops.map((l) => (
-              <li key={l.loop_id}><button className="w-full text-left rounded-md px-2 py-1.5 hover:bg-white/5" onClick={() => onPickLoop(l.loop_id)}>
-                <span className="font-semibold" style={{ color: "#F7F6F0" }}>{l.loop_id}</span> · {loopRoute(l)}
+              <li key={l.loop_id}><button className="w-full text-left rounded-md px-2 py-1.5 hover:bg-[var(--surface-soft)]" onClick={() => onPickLoop(l.loop_id)}>
+                <span className="font-semibold" style={{ color: "#1F2C27" }}>{l.loop_id}</span> · {loopRoute(l)}
               </button></li>
             ))}
           </ul>

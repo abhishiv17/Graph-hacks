@@ -7,6 +7,7 @@ import { organOf } from "@/lib/organs";
 import { Icon } from "@/components/app/icons";
 import { useResource } from "@/lib/data/source";
 import { Logo } from "@/components/Logo";
+import { Family } from "@/components/Kin";
 
 const DOT: Record<string, string> = { done: "var(--forest-mid)", current: "var(--mint)", waiting: "var(--line-strong)" };
 
@@ -34,6 +35,7 @@ export default function Case({ params }: { params: Promise<{ pair: string }> }) 
           {/* What the family's phone shows */}
           <div className="mx-auto w-full max-w-[26rem] rounded-[28px] border-8 p-5 shadow-sm" style={{ borderColor: "var(--forest-deep)", background: "var(--ivory)" }} lang={lang}>
             <div className="flex items-center justify-between"><Logo size={22} /><span className="text-xs muted">{pair}{r.data.facts?.city ? ` · ${r.data.facts.city}` : ""}</span></div>
+            <div className="mt-4 flex justify-center"><Family id={pair} size={70} /></div>
             <h2 className="mt-5 font-display text-[1.45rem] leading-snug" style={{ color: "var(--forest)" }}>{m.headline}</h2>
             <p className="mt-3 text-[0.95rem]">{m.body}</p>
             <ol className="mt-5 space-y-3">

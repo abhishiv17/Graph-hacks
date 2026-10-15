@@ -42,7 +42,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
     const edges: GEdge[] = (data.links as any[]).map((l) => {
       const wf = (data.workflow as any[]).find((w) => w.from_pair === l.from_pair && w.to_pair === l.to_pair);
       const state: GEdge["state"] = l.status === "failed" ? "failed" : wf?.result === "negative" ? "viable" : wf?.result === "cancelled" ? "inactive" : "pending";
-      return { from: l.from_pair, to: l.to_pair, state, key: `${l.from_pair}>${l.to_pair}`, label: l.status === "failed" ? `${wf?.antibody ?? "test"} ${org.outcome.positive}` : `p ${l.p_success}` };
+      return { from: l.from_pair, to: l.to_pair, state, key: `${l.from_pair}>${l.to_pair}`, label: l.status === "failed" ? `${wf?.antibody ?? "test"} ${org.outcome.positive}` : `${Math.round((l.p_success) * 100)}%` };
     });
     if (openRepair && showRepair && prop.recommended) {
       const rec = prop.recommended;
@@ -53,7 +53,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
       });
       rec.pairs.forEach((pid: string, i: number) => {
         const to = rec.pairs[(i + 1) % rec.pairs.length];
-        if (!edges.find((e) => e.from === pid && e.to === to && e.state !== "failed")) edges.push({ from: pid, to, state: "proposed", key: `rec:${pid}>${to}`, label: `p ${rec.probs[i]}` });
+        if (!edges.find((e) => e.from === pid && e.to === to && e.state !== "failed")) edges.push({ from: pid, to, state: "proposed", key: `rec:${pid}>${to}`, label: `${Math.round((rec.probs[i]) * 100)}%` });
       });
     }
     if (data.fallback && prop?.fallback && showRepair) {
@@ -79,7 +79,8 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
   };
 
   const stream = [
-    ...(data.decisions as any[]).map((x) => ({ at: x.at, who: x.made_by, actor: actorOf(x.made_by) === "user" || x.approved_by ? "user" as const : actorOf(x.made_by), text: `${x.action.replace(/_/g, " ")}: ${x.rationale}`, review: x.approved_by ? `approved by ${x.approved_by}` : null, src: "graph" })),
+    ...(data.decisions as any[]).map((x) => ({ at: x.at, who: x.made_by, actor: actorOf(x.made_by) === "user" || x.approved_by ? "user" as const : actorOf(x.made_by), text: `${x.action.replace(/_/g, " ")}: ${x.rationale}`, review: x.approved_by ? `approved by ${x.approved_by}` : null, src: "graph",
+                                               read: ((x.read ?? []) as string[]).filter((l) => !l.startsWith("Read 0 ")) })),
     ...(events.data ?? []).filter((e) => e.text.includes(id) || [...pairIds].some((p) => e.text.includes(p))).map((e) => ({ at: e.at, who: e.agent, actor: actorOf(e.agent), text: e.text, review: null, src: "event" })),
     ...ws.audit.filter((e) => e.ref === id).map((e) => ({ at: e.at, who: "Meera Iyer", actor: "user" as const, text: e.text, review: e.review ?? null, src: "browser" })),
   ].sort((a, b) => b.at - a.at);
@@ -129,10 +130,11 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
       )}
 
       <div className="mt-6 grid xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-8">
-        <Section title="The swap as a graph" description="Each circle is a family; each arrow is one donation. Click an arrow to see why."
+        <Section title="The swap as a graph" description="Each circle is a family: its patient and donor. Each arrow is one donation. Click an arrow to see why, or a family to open it in the graph explorer."
           actions={openRepair && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showRepair} onChange={(e) => setShowRepair(e.target.checked)} /> Show proposed repair</label>}>
-          <div className="canvas-dark p-3 sm:p-5">
-            {graph && <ExchangeGraph idPrefix="ex" height={460} nodes={graph.nodes} edges={graph.edges} selected={edge} onSelectEdge={setEdge}
+          <div className="rounded-2xl border p-2 sm:p-3" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
+            {graph && <ExchangeGraph idPrefix="ex" height={480} nodes={graph.nodes} edges={graph.edges} selected={edge} onSelectEdge={setEdge}
+              onSelectNode={(p) => router.push(`/families/${p}`)}
               label={`Exchange ${id}. ${(data.links as any[]).map((l) => `${l.from_city} to ${l.to_city}${l.status === "failed" ? " failed" : ""}`).join(", ")}.`} />}
             <div className="px-1 pt-2"><GraphLegend items={openRepair ? ["viable", "pending", "failed", "proposed", "fallback"] : ["viable", "pending", "failed"]} /></div>
           </div>
@@ -229,6 +231,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
                   <p className="text-sm"><span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{s.who}</span> <span className="text-xs muted">· {ACTOR_LABEL[s.actor]} · {fmtTime(s.at)}</span></p>
                   <p className="text-sm muted">{s.text}</p>
                   {s.review && <p className="text-xs mt-0.5" style={{ color: s.review.startsWith("declined") ? "var(--bad)" : "var(--ok)" }}>{s.review}</p>}
+                  {"read" in s && s.read && s.read.length > 0 && <p className="text-xs muted mt-0.5">{s.read.join(" · ")}</p>}
                 </li>
               ))}
             </ol>

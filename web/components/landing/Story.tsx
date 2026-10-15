@@ -2,6 +2,7 @@
 // The short homepage: impact, what a 2-way and a 3-way swap are, what the agents do on their own, and how KindRed
 // meets the two Graph Hacks tracks it entered. Numbers come from the simulated year (data/generated/sim_results.json).
 import Link from "next/link";
+import { Guide } from "@/components/Kin";
 import { useRef } from "react";
 import { gsap, MQ, useGSAP } from "./gsap";
 
@@ -111,20 +112,24 @@ export function SwapTypes() {
 /* ---------------------------------------------------------------- the agents */
 
 const AGENTS = [
-  { h: "Health watch", p: "Reads every new lab result, compares the trend with published thresholds and with what it remembers. It acts only when a patient gets worse, so it never repeats an alert." },
-  { h: "Coordinator agent", p: "A language model that runs each patient's case. Every week it chooses the next step from a fixed set of graph tools: search 2-way, then 3-way, form the swap, run the tests, ask for papers, book surgery." },
-  { h: "Matching and repair", p: "Graph traversals find every possible swap and an optimiser picks the best set. When a test fails, it repairs the swap by searching only 2 hops around the break." },
-  { h: "Scheduler, clerk, liaison", p: "Book appointments, chase missing committee papers, and tell the family what is happening, each from its own task in the graph." },
+  { h: "Notices when someone gets worse", who: "Health watch",
+    p: "Reads every new lab result and compares it with medical guidelines and with what it remembers. It speaks up only when a patient gets worse, so nobody is buried in alerts." },
+  { h: "Takes the next step, every week", who: "Coordinator",
+    p: "Looks at the patient's situation and does what's due: search for a swap, run the tests, ask for papers, book the surgery. It shows what it looked at and why." },
+  { h: "Mends a swap when a test fails", who: "Matching and repair",
+    p: "When one donation can't go ahead, it looks only at the families nearby for a replacement, keeps a backup ready, and leaves every other swap untouched." },
+  { h: "Keeps everyone in the loop", who: "Scheduler, clerk, family liaison",
+    p: "Books appointments, chases missing papers, and tells each family what is happening, in plain words and their own language." },
 ];
 
 export function Agents() {
   return (
     <section id="agents" className="k-night relative py-20 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
-        <h2 className="k-serif text-4xl sm:text-[3.2rem] leading-[1.05] max-w-3xl">Agents that act on their own, and show their work.</h2>
+        <h2 className="k-serif text-4xl sm:text-[3.2rem] leading-[1.05] max-w-3xl">Someone watching over every family, week after week.</h2>
         <p className="mt-4 max-w-3xl text-lg leading-relaxed" style={{ color: "#C9D8CD" }}>
-          Open a demo patient and press <strong>Next week</strong>. A falling lab result becomes a swap, tests, papers and a booked
-          transplant, with no approve button. Every step says which agent did it, which graph tools it used, and why.
+          KindRed&rsquo;s agents follow each patient from a falling lab result to a transplant. Every step says who did it, what it
+          looked at first, and why.
         </p>
         <ol className="mt-10 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {AGENTS.map((a, i) => (
@@ -132,57 +137,45 @@ export function Agents() {
               <p className="k-serif text-3xl" style={{ color: "#A6D8B5" }}>{i + 1}</p>
               <h3 className="mt-2 font-extrabold text-lg">{a.h}</h3>
               <p className="mt-2 text-sm leading-relaxed" style={{ color: "#C9D8CD" }}>{a.p}</p>
+              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: "#7FA08D" }}>{a.who}</p>
             </li>
           ))}
         </ol>
         <p className="mt-8 text-sm" style={{ color: "#A3B8AB" }}>
-          Guard rails: the model never writes a database query, every family or swap it names is checked against the graph, one
-          action a week, and the rules take over if the model fails. Synthetic data only; a prototype, not a clinical tool.
+          A person approves every repair. The AI can only use checked tools, never edits the records directly, and every family it
+          mentions is confirmed first. All families here are synthetic; KindRed is a prototype, not a clinical tool.
         </p>
       </div>
     </section>
   );
 }
 
-/* ---------------------------------------------------------------- the hackathon tracks */
+/* ---------------------------------------------------------------- why it needs a graph */
 
-const TRACKS = [
-  { t: "Track 1 · Agents that act on connected data", items: [
-    ["Multi-hop reasoning", "Swaps are 2- and 3-hop loops; repairs search 2 hops around a break; Ask KindRed traces what a withdrawal breaks"],
-    ["Graph algorithms as tools", "Connected components split the pool, betweenness finds families who hold many swaps together, shortest path links two families"],
-    ["Tool selection through MCP", "The coordinator agent and Ask KindRed choose from fixed tool catalogues; the same tools are served over MCP"],
-    ["Actions from what the graph shows", "Swaps formed, tests run, papers chased, surgery booked, all from graph state"],
-    ["Explainable results", "\"Why this swap\" reads each link's stored reasons; every agent step has its tool trace"],
-  ] },
-  { t: "Track 2 · Agent memory and coordination", items: [
-    ["Episodic, semantic, procedural memory", "What happened each week, current beliefs that replace older ones (kept with dates), and playbooks stored as graph nodes"],
-    ["Persistent conversations", "Each patient's chat lives in the graph, so any browser picks up where you left off"],
-    ["Shared state and hand-offs", "Agents never call each other: they hand off through Task nodes in the shared graph, so a restart loses nothing"],
-    ["Separate memory per user and tenant", "One private graph per hospital, and one memory graph per patient"],
-  ] },
+const WHY = [
+  { h: "A swap is a loop", p: "Families are points and possible donations are the lines between them. A swap is a loop of lines, and finding loops is what a graph database does best.", tag: "Loops found by traversal in FalkorDB" },
+  { h: "Looking further finds more", p: "A direct trade between two families is easy to spot. A three-family loop helps the patients nobody can trade with directly, and it only shows up when you look one step further.", tag: "2-way and 3-way searches, side by side" },
+  { h: "It remembers, and shows why", p: "Every test, decision and conversation is kept in the same graph. Each agent picks up where another left off, and every answer comes with the path behind it.", tag: "Memory stored as connected nodes" },
 ];
 
 export function Tracks() {
   return (
-    <section id="tracks" className="relative py-20 sm:py-24">
+    <section id="why-graph" className="relative py-20 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
-        <p className="text-sm font-extrabold uppercase tracking-[0.16em]" style={{ color: MINT }}>Built for Graph Hacks 2026 · FalkorDB is the only database</p>
-        <h2 className="k-serif mt-3 text-4xl sm:text-[3.2rem] leading-[1.05] max-w-3xl">The graph decides what the agents do.</h2>
-        <div className="mt-10 grid lg:grid-cols-2 gap-6">
-          {TRACKS.map((tr) => (
-            <div key={tr.t} className="rounded-[32px] p-8" style={{ background: "#EFEEE6" }}>
-              <h3 className="font-extrabold text-lg" style={{ color: INK }}>{tr.t}</h3>
-              <ul className="mt-5 space-y-4">
-                {tr.items.map(([h, p]) => (
-                  <li key={h} className="flex gap-3">
-                    <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: MINT }} aria-hidden="true" />
-                    <span><span className="font-bold" style={{ color: INK }}>{h}.</span> <span className="k-body">{p}.</span></span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+        <p className="text-sm font-extrabold uppercase tracking-[0.16em]" style={{ color: MINT }}>Why it needs a graph</p>
+        <h2 className="k-serif mt-3 text-4xl sm:text-[3.2rem] leading-[1.05] max-w-3xl">Families, donations and memory, all connected.</h2>
+        <ul className="mt-10 grid md:grid-cols-3 gap-5">
+          {WHY.map((w) => (
+            <li key={w.h} className="rounded-[28px] p-7" style={{ background: "#EFEEE6" }}>
+              <h3 className="font-extrabold text-lg" style={{ color: INK }}>{w.h}</h3>
+              <p className="k-body mt-2 leading-relaxed">{w.p}</p>
+              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: MINT }}>{w.tag}</p>
+            </li>
           ))}
-        </div>
+        </ul>
+        <p className="mt-8">
+          <Link href="/graph" className="k-link font-bold" style={{ color: INK }}>For judges: the graph model, every query and how KindRed meets Track 1 and Track 2 →</Link>
+        </p>
       </div>
     </section>
   );
@@ -194,17 +187,18 @@ export function TryIt() {
   return (
     <section className="relative pb-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
-        <div className="rounded-[40px] px-6 py-12 sm:px-14 sm:py-14 grid md:grid-cols-[1.2fr_auto] gap-8 items-center" style={{ background: "#DCE9DE" }}>
+        <div className="rounded-[40px] px-6 py-12 sm:px-14 sm:py-14 grid md:grid-cols-[auto_1.2fr_auto] gap-8 items-center" style={{ background: "#DCE9DE" }}>
+          <Guide size={120} pose="wave" className="hidden md:block" />
           <div>
-            <h2 className="k-serif text-4xl sm:text-5xl leading-[1.05]">See it in two minutes.</h2>
+            <h2 className="k-serif text-4xl sm:text-5xl leading-[1.05]">Follow a family to a transplant.</h2>
             <p className="k-body mt-4 text-lg leading-relaxed max-w-2xl">
-              Open Sunita (kidney) or Rajesh (liver). Press <strong>Next week</strong> a few times and watch the agents take them to a
-              transplant. Then see their swap on the live map, and ask about them in their chat.
+              Meet Sunita, who needs a kidney, or Rajesh, who needs part of a liver. Move forward one week at a time and watch the
+              agents find a swap, run the tests and book the surgery. Stuck anywhere? Ask Kin, at the bottom of every screen.
             </p>
           </div>
           <div className="flex flex-col gap-3">
-            <Link href="/patients" className="k-btn k-btn-primary">Meet a demo patient</Link>
-            <Link href="/pool" className="k-btn k-btn-paper">Open the live map</Link>
+            <Link href="/patients" className="k-btn k-btn-primary">Meet the patients</Link>
+            <Link href="/pool" className="k-btn k-btn-paper">See the live map</Link>
           </div>
         </div>
       </div>

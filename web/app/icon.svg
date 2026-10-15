@@ -1,8 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#102A24"/>
-  <g transform="translate(6 13) scale(0.25)">
-    <g transform="translate(30 6) rotate(-24 50 70)"><path d="M50 5 C20 5 5 35 8 70 C10 105 25 135 55 135 C75 135 88 120 85 100 C83 88 72 82 72 70 C72 58 83 52 85 40 C88 18 72 5 50 5 Z" fill="#A6D8B5"/></g>
-    <g transform="translate(190 6) scale(-1 1) rotate(-24 50 70)"><path d="M50 5 C20 5 5 35 8 70 C10 105 25 135 55 135 C75 135 88 120 85 100 C83 88 72 82 72 70 C72 58 83 52 85 40 C88 18 72 5 50 5 Z" fill="#E39A90"/></g>
-    <path d="M58 118 C84 150 136 150 162 118" fill="none" stroke="#F7F6F0" stroke-width="9" stroke-linecap="round"/>
+  <!-- Kin, KindRed's mascot (components/Kin.tsx), idle pose in the nurse cap, scaled into a tab icon -->
+  <rect width="64" height="64" rx="16" fill="#EDF3EC"/>
+  <g transform="translate(6.3 1) scale(0.43)">
+    <ellipse cx="46" cy="126" rx="11" ry="6" fill="#183B32"/>
+    <ellipse cx="74" cy="126" rx="11" ry="6" fill="#183B32"/>
+    <path d="M22 86 Q12 94 15 104" fill="none" stroke="#183B32" stroke-width="15" stroke-linecap="round"/>
+    <path d="M22 86 Q12 94 15 104" fill="none" stroke="#BFE3C8" stroke-width="8" stroke-linecap="round"/>
+    <path d="M98 86 Q108 94 105 104" fill="none" stroke="#183B32" stroke-width="15" stroke-linecap="round"/>
+    <path d="M98 86 Q108 94 105 104" fill="none" stroke="#BFE3C8" stroke-width="8" stroke-linecap="round"/>
+    <path d="M60 22 C89 22 104 47 104 77 C104 106 86 124 60 124 C34 124 16 106 16 77 C16 47 31 22 60 22 Z" fill="#BFE3C8" stroke="#183B32" stroke-width="3.5"/>
+    <ellipse cx="60" cy="96" rx="27" ry="21" fill="#E6F3E8"/>
+    <path d="M19 92 C36 108 84 108 101 92" fill="none" stroke="#C9564B" stroke-width="3.5" stroke-linecap="round"/>
+    <circle cx="34" cy="102" r="5.5" fill="#2C5A4B" stroke="#183B32" stroke-width="2"/>
+    <circle cx="60" cy="108" r="5.5" fill="#D99A35" stroke="#183B32" stroke-width="2"/>
+    <circle cx="86" cy="102" r="5.5" fill="#E07A6E" stroke="#183B32" stroke-width="2"/>
+    <path d="M37 33 L43 13 Q60 9 77 13 L83 33 Q60 27 37 33 Z" fill="#FFFFFF" stroke="#183B32" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M60 28 C54 23.5 54 18.5 57.5 18 C59 17.8 60 19 60 20.2 C60 19 61 17.8 62.5 18 C66 18.5 66 23.5 60 28 Z" fill="#E07A6E"/>
+    <ellipse cx="46" cy="63" rx="4.6" ry="6.2" fill="#183B32"/>
+    <ellipse cx="74" cy="63" rx="4.6" ry="6.2" fill="#183B32"/>
+    <circle cx="47.6" cy="60.6" r="1.6" fill="#fff"/>
+    <circle cx="75.6" cy="60.6" r="1.6" fill="#fff"/>
+    <ellipse cx="36" cy="75" rx="6" ry="3.8" fill="#EE9F95" opacity="0.85"/>
+    <ellipse cx="84" cy="75" rx="6" ry="3.8" fill="#EE9F95" opacity="0.85"/>
+    <path d="M52 76 Q60 84 68 76" fill="none" stroke="#183B32" stroke-width="3" stroke-linecap="round"/>
   </g>
 </svg>

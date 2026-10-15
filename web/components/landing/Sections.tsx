@@ -17,18 +17,15 @@ export function TopNav() {
   }, { scope: root });
   return (
     <header ref={root} className="k-nav fixed inset-x-0 top-0 z-50 transition-[background,box-shadow] duration-300">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-        <nav className="hidden md:flex gap-8 font-bold" style={{ color: "#4A5952" }} aria-label="Sections">
-          <a href="#impact" className="hover:text-[#183B32] transition-colors">Impact</a>
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 h-20 flex items-center gap-8">
+        <Link href="/" aria-label="KindRed home" className="shrink-0"><Logo size={34} /></Link>
+        <nav className="hidden md:flex items-center gap-8 font-semibold" style={{ color: "#4A5952" }} aria-label="Sections">
           <a href="#how" className="hover:text-[#183B32] transition-colors">How a swap works</a>
-          <a href="#agents" className="hover:text-[#183B32] transition-colors">Agents</a>
+          <Link href="/patients" className="hover:text-[#183B32] transition-colors">Patients</Link>
+          <Link href="/pool" className="hover:text-[#183B32] transition-colors">Live map</Link>
+          <Link href="/graph" className="hover:text-[#183B32] transition-colors">How it works</Link>
         </nav>
-        <Link href="/" aria-label="KindRed home" className="justify-self-start md:justify-self-center"><Logo size={30} /></Link>
-        <div className="flex items-center justify-end gap-8">
-          <a href="#tracks" className="hidden md:inline font-bold hover:text-[#183B32] transition-colors" style={{ color: "#4A5952" }}>Hackathon tracks</a>
-          <Link href="/patients" className="hidden sm:inline font-bold hover:text-[#183B32] transition-colors" style={{ color: "#4A5952" }}>Demo patients</Link>
-          <Link href="/pool" className="k-btn k-btn-primary !py-2.5 !px-5 text-sm">Open workspace</Link>
-        </div>
+        <Link href="/patients" className="ml-auto k-btn k-btn-primary !py-2.5 !px-5 text-sm">Follow a patient →</Link>
       </div>
     </header>
   );

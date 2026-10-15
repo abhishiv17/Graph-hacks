@@ -98,6 +98,12 @@ export function createOfflineApi(): Api {
     },
     async queries() { return (await load()).queries; },
     async sim() { return (await load()).sim; },
+    async explore() { throw new NotFound("The family explorer reads the live graph; start the backend to use it"); },
+    async concurrency() {
+      const c = (await load() as any).concurrency;
+      if (!c) throw new NotFound("The offline snapshot has no concurrency results; they are in data/generated/concurrency.json");
+      return c;
+    },
     async graphOverview() {
       const g = (await load()).graph_overview;
       if (!g) throw new NotFound("The offline snapshot has no graph overview; rerun scripts/capture-snapshot.py");

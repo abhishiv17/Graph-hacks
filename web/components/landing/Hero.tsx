@@ -113,8 +113,7 @@ export default function Hero() {
           possibilities, coordinate review, and recover when a proposed pathway changes.
         </p>
         <div className="hero-cta gsap-reveal mt-9 flex flex-wrap justify-center gap-3">
-          <Link href="/patients" className="k-btn k-btn-primary">Meet a demo patient</Link>
-          <Link href="/pool" className="k-btn k-btn-line">Open the workspace</Link>
+          <Link href="/patients" className="k-btn k-btn-primary">Meet the patients</Link>
           <a href="#how" className="k-btn k-btn-line">How a swap works</a>
         </div>
         <ul className="hero-cta gsap-reveal mt-7 flex flex-wrap justify-center gap-3" aria-label="Programs on the platform">

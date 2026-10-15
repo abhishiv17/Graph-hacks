@@ -5,9 +5,11 @@ import { ErrorState, Loading, Section, Tag } from "@/components/app/ui";
 import { useQueries } from "@/lib/data/hooks";
 import { useResource } from "@/lib/data/source";
 import { fmtTime } from "@/lib/data/derive";
-import type { GraphOverview } from "@/lib/data/types";
+import type { Concurrency, GraphOverview } from "@/lib/data/types";
 
 type Status = "Built" | "Partly" | "Not yet";
+// The same colours as the family explorer's legend, so the model and the explorer read as one system.
+const SCHEMA_TINT: Record<string, string> = { Patient: "#E07A6E", Donor: "#4E8FC4", Hospital: "#7A6FB0", HLAAntigen: "#D99A35", Antibody: "#8E5BB5", Loop: "#2C8A62", Failure: "#D4574B" };
 const RUBRIC: { track: string; items: { point: string; how: string; evidence: string[]; status: Status }[] }[] = [
   { track: "Track 1 · Agents that act on connected data", items: [
     { point: "Multi-hop reasoning", status: "Built",
@@ -40,16 +42,90 @@ const RUBRIC: { track: string; items: { point: string; how: string; evidence: st
       how: "Each verified Ask KindRed answer is stored as a Question node linked ABOUT the families and swaps it covers. In a later session the agent recalls it with the date it was learned, and the Ask screen lists earlier answers. Unverified answers are never stored. Every visit to a demo patient's page is a Session node, and the greeting says what changed since the previous one.",
       evidence: ["Q37_remember_answer", "Q38_recall", "Q39_recent_questions", "Q47_sessions"] },
     { point: "Shared state and handoffs between agents", status: "Built",
-      how: "Agents never call each other. They read and write the same graph: Task nodes are assigned to agents, and the next agent picks up from the state it finds. The health watch hands one Task per playbook step to the matching agent, scheduler, committee clerk and liaison; each agent picks up its own open tasks, also from the background watch, so a restart loses nothing.",
-      evidence: ["Q09_offer_loop", "Q15_loop_committee_readiness", "Q48_pair_handoffs"] },
-    { point: "High-concurrency reads and writes", status: "Partly",
-      how: "Every write to a family checks a version number (optimistic locking), so two agents can't overwrite each other. A load test with many hospital agents writing at once is not done yet.",
-      evidence: ["Q01_upsert_pair"] },
+      how: "Agents never call each other. They read and write the same graph: Task nodes are assigned to agents, and the next agent picks up from the state it finds. The health watch hands one Task per playbook step to the matching agent, scheduler, committee clerk and liaison; each agent picks up its own open tasks, also from the background watch, so a restart loses nothing. Every agent step also stores what it read first and who wrote it (\"Read before acting\" on each patient's page): the coordinator reads the health watch's beliefs and the crossmatch coordinator's failed links, and the matching agent reads the failure memory before every search.",
+      evidence: ["Q09_offer_loop", "Q15_loop_committee_readiness", "Q48_pair_handoffs", "Q54_failure_memory_around"] },
+    { point: "High-concurrency reads and writes", status: "Built",
+      how: "Every write to a family checks a version number (optimistic locking), so a stale write is refused and retried instead of overwriting a newer one. Measured below: up to 16 hospital agents publish families at once while the matcher searches the same graph, and up to 16 agents update one family at the same moment. No write is lost with the check; the same work without it loses updates.",
+      evidence: ["Q01_upsert_pair", "Q02_build_edges_for_pair", "Q04_two_way_loops", "Q05_three_way_loops"] },
     { point: "Separate memory per user or tenant", status: "Built",
       how: "Each hospital has its own private graph with names, documents and the demo patients' lab readings; only de-identified medical facts are published to the shared exchange graph. Each demo patient has a memory graph of their own (mem_sunita, mem_rajesh), so one person's memory never mixes with another's. Ask KindRed's memory records which hospitals and programs each answer touches, and a user only recalls answers inside their own scope.",
       evidence: ["Q38_recall"] },
   ] },
 ];
+
+const ms = (x: number | null) => (x == null ? "–" : x < 10 ? x.toFixed(1) : Math.round(x).toString());
+
+/** The measured concurrency test: numbers from data/generated/concurrency.json, never typed in by hand. */
+function ConcurrencyTest() {
+  const r = useResource<Concurrency>("concurrency", (a) => a.concurrency(), 0);
+  const c = r.data;
+  if (!c?.ready) return null;
+  const errs = [...c.throughput, ...c.reads_under_writes].reduce((n, t) => n + t.errors.write + t.errors.read, 0);
+  const th = "px-3 py-2 font-medium";
+  const td = "px-3 py-2 tnum";
+  return (
+    <Section title="Concurrency test (measured)"
+      description={<>Many agents writing to the shared exchange graph while the matching agent reads it. FalkorDB {c.falkordb.version} in Docker on one laptop
+        ({c.machine.cpus} CPUs), default settings, a scratch graph of {c.base_pool} synthetic kidney families. Rerun with <code>python -m swapnet.sim.concurrency</code>.</>}>
+      <div className="grid gap-6 xl:grid-cols-3">
+        <div className="panel overflow-x-auto">
+          <p className="px-3 pt-3 text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>1 · Hospital agents publishing {c.new_families} new families at once</p>
+          <table className="w-full text-sm mt-2">
+            <thead><tr className="text-left text-xs muted"><th className={th}>Agents</th><th className={th}>Families/s</th><th className={th}>Each, p50 / p95</th><th className={th}>Lost</th></tr></thead>
+            <tbody>
+              {c.throughput.map((t) => (
+                <tr key={t.writers} className="border-t" style={{ borderColor: "var(--line)" }}>
+                  <td className={td}>{t.writers}</td><td className={td}>{t.families_per_s}</td>
+                  <td className={td}>{ms(t.publish_latency.p50_ms)} / {ms(t.publish_latency.p95_ms)} ms</td>
+                  <td className={td}><Tag tone={t.lost_writes === 0 ? "ok" : "bad"}>{t.lost_writes}</Tag></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-3 py-3 text-xs muted">Each family is two writes: publish (Q01, with the version check), then build its links (Q02). Two matchers search every loop
+            in the pool the whole time. Afterwards every family is in the graph once, at version 1.</p>
+        </div>
+        <div className="panel overflow-x-auto">
+          <p className="px-3 pt-3 text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>2 · The matcher&rsquo;s loop search while agents write</p>
+          <table className="w-full text-sm mt-2">
+            <thead><tr className="text-left text-xs muted"><th className={th}>Agents</th><th className={th}>Updates/s</th><th className={th}>Search p50, no writers → writers</th><th className={th}>p95 with writers</th></tr></thead>
+            <tbody>
+              {c.reads_under_writes.map((t) => (
+                <tr key={t.writers} className="border-t" style={{ borderColor: "var(--line)" }}>
+                  <td className={td}>{t.writers}</td><td className={td}>{t.updates_per_s}</td>
+                  <td className={td}>{ms(t.search_idle.p50_ms)} → {ms(t.search_during_writes.p50_ms)} ms</td>
+                  <td className={td}>{ms(t.search_during_writes.p95_ms)} ms</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-3 py-3 text-xs muted">One search is every 2- and 3-way loop in a pool of {c.reads_under_writes[0]?.pool} families (Q04, Q05). The pool&rsquo;s size is fixed
+            here: agents update families of their own and rebuild their links, and the same two matchers search with no writers first. The two columns
+            differ by about as much as one run differs from the next, so the writes don&rsquo;t measurably slow the search; the pool&rsquo;s size does.</p>
+        </div>
+        <div className="panel overflow-x-auto">
+          <p className="px-3 pt-3 text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>3 · Agents updating the same family at the same moment</p>
+          <table className="w-full text-sm mt-2">
+            <thead><tr className="text-left text-xs muted"><th className={th}>Agents</th><th className={th}>Updates</th><th className={th}>Stale writes refused</th><th className={th}>Lost with check</th><th className={th}>Lost without</th></tr></thead>
+            <tbody>
+              {c.contention.map((x) => (
+                <tr key={x.agents} className="border-t" style={{ borderColor: "var(--line)" }}>
+                  <td className={td}>{x.agents}</td><td className={td}>{x.updates_wanted}</td><td className={td}>{x.conflicts_caught}</td>
+                  <td className={td}><Tag tone={x.lost_updates === 0 ? "ok" : "bad"}>{x.lost_updates}</Tag></td>
+                  <td className={td}><Tag tone={x.control_without_check.lost_updates === 0 ? "ok" : "warn"}>{x.control_without_check.lost_updates}</Tag></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-3 py-3 text-xs muted">Each agent reads the family&rsquo;s version and writes through Q01 with it. If another agent wrote first, the write is refused and the agent
+            reads again and retries. The control does the same work as a plain read-then-write, and loses updates.</p>
+        </div>
+      </div>
+      <p className="mt-3 text-xs muted">FalkorDB runs one write query at a time per graph and reads in parallel, so writes queue instead of interleaving: more agents raise
+        throughput only up to a point. {errs === 0 ? "No query timed out or was refused in any run." : `${errs} queries timed out or were refused (counted, not hidden).`} Measured {fmtTime(c.measured_at)}. {c.note}</p>
+    </Section>
+  );
+}
 
 export default function HowItWorks() {
   const ov = useResource<GraphOverview>("graph-overview", (a) => a.graphOverview(), 4000);
@@ -124,6 +200,8 @@ export default function HowItWorks() {
             ))}
           </div>
         </Section>
+
+        <ConcurrencyTest />
 
         {g && <QueryTable g={g} />}
 
@@ -217,7 +295,7 @@ function SchemaDiagram() {
       <text x={335} y={68} textAnchor="middle" fontSize={10.5} fill="#9e4238" style={{ fontFamily: "var(--font-mono, monospace)" }}>FAILED {"{cause}"} · never proposed again</text>
       {Object.entries(N).map(([k, [x, y, sub]]) => (
         <g key={k} transform={`translate(${x} ${y})`}>
-          <rect x={-62} y={-24} width={124} height={48} rx={10} fill={k === "Pair" ? "#183b32" : "#ffffff"} stroke={k === "Pair" ? "#183b32" : "#c6d2c7"} />
+          <rect x={-62} y={-24} width={124} height={48} rx={10} fill={k === "Pair" ? "#183b32" : "#ffffff"} stroke={k === "Pair" ? "#183b32" : SCHEMA_TINT[k] ?? "#c6d2c7"} strokeWidth={SCHEMA_TINT[k] ? 2 : 1} />
           <text y={-3} textAnchor="middle" fontSize={13} fontWeight={700} fill={k === "Pair" ? "#ffffff" : "#1f2c27"}>{k}</text>
           <text y={13} textAnchor="middle" fontSize={10} fill={k === "Pair" ? "#a6d8b5" : "#66736b"}>{sub}</text>
         </g>

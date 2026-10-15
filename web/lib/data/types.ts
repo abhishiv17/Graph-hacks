@@ -94,6 +94,46 @@ export type PersonaSummary = {
   case: PersonaCase | null; pair_status: string | null; transplanted: boolean;
 };
 /** One tool call of the coordinator agent: what it called, with what, and what the graph answered. */
+type Latency = { n: number; p50_ms: number | null; p95_ms: number | null; max_ms: number | null };
+/** One family as a small graph (GET /api/families/{id}/explore): its parts and the families around it, hop by hop. */
+export type ExploreNodeType = "family" | "patient" | "donor" | "hospital" | "blood" | "antigen" | "antibody" | "liver";
+export type ExploreNode = { id: string; type: ExploreNodeType; label: string; sub: string; hop: number; data: Record<string, any> };
+export type ExploreEdge = {
+  id: string; from: string; to: string; type: string; label: string; mark: "own" | "loop2" | "loop3" | null;
+  p?: number; reasons?: string[]; mfi?: number; loops?: number[];
+};
+export type Explore = {
+  center: string; organ: string; hops: number; nodes: ExploreNode[]; edges: ExploreEdge[];
+  why_not_own: { text: string; edges: string[] };
+  loops: { pairs: string[]; probs: number[]; p_all: number; size: number }[];
+  counts: { gives_to: number; receives_from: number; two_way: number; three_way: number; families_shown: number };
+  queries: Ran[];
+};
+/** The measured concurrency test (backend swapnet/sim/concurrency.py, data/generated/concurrency.json). */
+export type Concurrency = {
+  ready: boolean; falkordb: { version: string; settings: Record<string, string | number> };
+  machine: { cpus: number; os: string; python: string }; base_pool: number; new_families: number; measured_at: number; note: string;
+  throughput: {
+    writers: number; readers: number; families: number; published: number; seconds: number; families_per_s: number;
+    write_queries_per_s: number; publish_latency: Latency; links_built: number; searches_during_load: number;
+    pool_before: number; pool_after: number; errors: { write: number; read: number; examples: string[] };
+    lost_writes: number; all_at_version_1: boolean;
+  }[];
+  reads_under_writes: {
+    writers: number; readers: number; seconds: number; pool: number; loops_in_pool: number; updates: number; updates_per_s: number;
+    update_latency: Latency; search_idle: Latency; search_during_writes: Latency; search_idle_after: Latency;
+    slowdown_p50: number | null; errors: { write: number; read: number; examples: string[] };
+  }[];
+  contention: {
+    agents: number; updates_each: number; updates_wanted: number; seconds: number; updates_applied: number; conflicts_caught: number;
+    gave_up: number; errors: number; lost_updates: number; version_check_ok: boolean; update_latency: Latency;
+    control_without_check: { updates_wanted: number; updates_kept: number; lost_updates: number };
+  }[];
+};
+/** One memory an agent read before acting (backend agents/recall.py): what, who wrote it, and what it did with it. */
+export type MemoryRead = {
+  memory: string; kind: "episodic" | "semantic" | "procedural" | "shared"; written_by: string; n: number; used: string; detail: string[];
+};
 export type CoordinatorStep = { tool: string; input: Record<string, unknown>; result: any; error: string | null; by: "model" | "rules"; ms: number };
 /** One swap search for a demo patient, at one depth (2 = 2-way only, 3 = also 3-way). */
 export type PersonaSearch = {
@@ -115,12 +155,13 @@ export type PersonaCase = {
 export type PersonaHandoff = {
   task_id: string; kind: string; status: "open" | "done" | "declined" | "superseded"; agent: string; action: string;
   payload: { agent?: string; action?: string; what?: string | null; why?: string; stage?: string; step?: number };
-  result: string | null; at: number; done_at: number | null; finding_id: string;
+  result: string | null; at: number; done_at: number | null; finding_id: string; read?: string | null;
 };
 export type PersonaFinding = {
   finding_id: string; at: number; week: number; stage: string; previous_stage: string | null; text: string; value: number;
   slope_per_year: number; weeks_to_next: number | null; kind: "baseline" | "reading" | "stage_change" | "case" | "world" | "decision" | "check";
   trace?: CoordinatorStep[] | null; model?: string | null; safety_net?: string | null; action?: string | null; due?: string | null;
+  read?: MemoryRead[] | null;
   readings: { result_id: string; value: number; at: number }[];
   handoffs: { task_id: string; agent: string; action: string; status: string; detail: string | null }[];
 };
@@ -148,6 +189,8 @@ export interface Api {
   events(since?: number): Promise<BackendEvent[]>;
   queries(): Promise<Record<string, string>>;
   sim(): Promise<any>;
+  concurrency(): Promise<Concurrency>;
+  explore(pair: string, hops: number): Promise<Explore>;
   graphOverview(): Promise<GraphOverview>;
   hospital(code: string): Promise<any>;
   reset(): Promise<any>;

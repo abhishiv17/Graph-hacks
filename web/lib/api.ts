@@ -42,6 +42,8 @@ export function createLiveApi(): Api {
     events: (since = 0) => get(`/api/events?since=${since}`),
     queries: () => get("/api/queries"),
     sim: () => get("/api/sim"),
+    concurrency: () => get("/api/concurrency"),
+    explore: (pair, hops) => get(`/api/families/${encodeURIComponent(pair)}/explore?hops=${hops}`),
     graphOverview: () => get("/api/graph/overview"),
     hospital: (code) => get(`/api/hospital/${encodeURIComponent(code)}`),
     reset: () => post("/api/demo/reset"),

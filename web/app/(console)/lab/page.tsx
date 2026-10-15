@@ -157,7 +157,7 @@ function Scenario({ sc, o }: { sc: Recorded; o: OrganView }) {
               <button className="btn btn-sm" onClick={replay}><Icon name="replay" size={14} /> Replay</button>
             </div>
           }>
-          <div className="canvas-dark p-3 sm:p-5">
+          <div className="rounded-2xl border p-2 sm:p-3" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
             <ExchangeGraph idPrefix="sim" height={400} nodes={graph.nodes} edges={graph.edges} label={`Simulation step ${step + 1}: ${steps[step].title}. ${steps[step].detail}`} />
             <div className="px-1 pt-2"><GraphLegend items={["viable", "pending", "failed", "proposed", "fallback"]} /></div>
           </div>
@@ -201,12 +201,12 @@ function Scenario({ sc, o }: { sc: Recorded; o: OrganView }) {
         <div className="mt-10">
           <Section title="Before and after" description={choice ? undefined : "Choose an option at the checkpoint to see the outcome."}>
             <div className="grid lg:grid-cols-2 gap-6">
-              <div className="canvas-dark p-4">
-                <p className="px-1 text-sm font-semibold" style={{ color: "#F7F6F0" }}>Before · as planned</p>
+              <div className="rounded-2xl border p-3" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
+                <p className="px-1 text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>Before · as planned</p>
                 <ExchangeGraph idPrefix="sb" height={300} {...graphAt(0, null, sc, city, o)} label={`Before: ${sc.id} as planned`} />
               </div>
-              <div className="canvas-dark p-4">
-                <p className="px-1 text-sm font-semibold" style={{ color: "#F7F6F0" }}>After · {choice === "recommended" ? "repaired" : choice === "fallback" ? "fallback" : choice === "hold" ? "on hold" : "waiting for a decision"}</p>
+              <div className="rounded-2xl border p-3" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
+                <p className="px-1 text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>After · {choice === "recommended" ? "repaired" : choice === "fallback" ? "fallback" : choice === "hold" ? "on hold" : "waiting for a decision"}</p>
                 <ExchangeGraph idPrefix="sa" height={300} {...graphAt(LAST + 1, choice, sc, city, o)} label="After the coordinator's choice" />
               </div>
             </div>
@@ -248,7 +248,7 @@ function graphAt(step: number, choice: Choice | null, sc: Recorded, city: (p: st
   if (step >= 5 && !(after && choice !== "recommended")) {
     rec.pairs.forEach((p: string, i: number) => {
       const to = rec.pairs[(i + 1) % rec.pairs.length];
-      if (!edges.some((e) => e.from === p && e.to === to && e.state === "viable")) edges.push({ from: p, to, state: after ? "viable" : "proposed", label: `p ${rec.probs[i]}` });
+      if (!edges.some((e) => e.from === p && e.to === to && e.state === "viable")) edges.push({ from: p, to, state: after ? "viable" : "proposed", label: `${Math.round((rec.probs[i]) * 100)}%` });
     });
   }
   if (fb && ((step >= 6 && !after) || (after && choice === "fallback"))) {
