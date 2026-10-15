@@ -3,7 +3,8 @@ held offers whose lab test is already back, overdue lab tests, committee deadlin
 and families waiting to be re-matched. Each agent acts in its own role; every action is an event
 and a Decision in the graph, so the audit trail shows it.
 
-KINDRED_WATCH=0 turns it off; KINDRED_WATCH_SECONDS sets the interval (default 30).
+KINDRED_WATCH=0 turns it off; KINDRED_WATCH_SECONDS sets the interval (default 30). Another process (the test suite)
+can pause every watch sharing this FalkorDB by setting the PAUSE_KEY key; it expires on its own.
 """
 import os
 import threading
@@ -16,6 +17,8 @@ INTERVAL = float(os.getenv("KINDRED_WATCH_SECONDS", "30"))
 ENABLED = os.getenv("KINDRED_WATCH", "1") != "0"
 # Most committee chases per sweep, so a large pool doesn't flood the feed.
 MAX_CHASES = 1
+
+PAUSE_KEY = "kindred:watch:paused"
 
 state = {"enabled": ENABLED, "interval_s": INTERVAL, "sweeps": 0, "last_at": None, "last_actions": [], "running": False}
 _stop = threading.Event()
@@ -61,7 +64,9 @@ def _rematch() -> list[str]:
 
 
 def sweep() -> dict:
-    """One pass over every duty. Skips if a reset or another action holds the graph."""
+    """One pass over every duty. Skips if a reset or another action holds the graph, or the watch is paused."""
+    if paused():
+        return {"skipped": True, "paused": True, **state}
     if not core.LOCK.acquire(blocking=False):
         return {"skipped": True, **state}
     try:
@@ -77,6 +82,21 @@ def sweep() -> dict:
     finally:
         state["running"] = False
         core.LOCK.release()
+
+
+def paused() -> bool:
+    try:
+        return bool(db.db().connection.exists(PAUSE_KEY))
+    except Exception:
+        return False
+
+
+def pause(seconds: int = 900) -> None:
+    db.db().connection.set(PAUSE_KEY, "1", ex=seconds)
+
+
+def resume() -> None:
+    db.db().connection.delete(PAUSE_KEY)
 
 
 def _loop() -> None:

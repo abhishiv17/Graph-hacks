@@ -1,5 +1,6 @@
 """FalkorDB access. Every query is a named .cypher file so the UI can show exactly what ran."""
 import contextvars
+import re
 import threading
 import time
 from collections import deque
@@ -26,6 +27,16 @@ def query_text(name: str) -> str:
     return (config.QUERIES / f"{name}.cypher").read_text(encoding="utf-8")
 
 
+_WRITES = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE)\b", re.IGNORECASE)
+
+
+def is_read_only(name: str) -> bool:
+    """A named query with no write clause. These run through GRAPH.RO_QUERY, so FalkorDB itself refuses
+    any write from them, and the Ask agent can only reach queries that pass this check."""
+    body = "\n".join(l for l in query_text(name).splitlines() if not l.strip().startswith("//"))
+    return not _WRITES.search(body)
+
+
 def all_queries() -> dict[str, str]:
     return {p.stem: p.read_text(encoding="utf-8") for p in sorted(config.QUERIES.glob("Q*.cypher"))}
 
@@ -33,10 +44,12 @@ def all_queries() -> dict[str, str]:
 def run(name: str, params: dict | None = None, graph: str = config.EXCHANGE) -> list[dict]:
     """Run a named query and return rows as dicts. Records the query and its latency."""
     text = query_text(name)
+    ro = is_read_only(name)
+    g = db().select_graph(graph)
     t0 = time.perf_counter()
-    res = db().select_graph(graph).query(text, params or {})
+    res = (g.ro_query if ro else g.query)(text, params or {})
     ms = (time.perf_counter() - t0) * 1000
-    entry = {"query": name, "graph": graph, "ms": round(ms, 2)}
+    entry = {"query": name, "graph": graph, "ms": round(ms, 2), "read_only": ro}
     LOG.append({**entry, "at": int(time.time() * 1000), "rows": len(res.result_set)})
     ran = _ran.get()
     if ran is not None:

@@ -87,6 +87,15 @@ def test_committee_chase_climbs_a_three_step_ladder():
 
 def test_watch_sweep_runs_every_duty():
     c.post("/api/demo/reset")
+    assert watch.sweep().get("paused")          # the suite pauses every watch sharing this FalkorDB (conftest.py)
+    watch.resume()                              # ...and sweeps here on purpose
+    try:
+        _check_sweep()
+    finally:
+        watch.pause(seconds=1800)
+
+
+def _check_sweep():
     r = c.post("/api/agents/sweep").json()
     assert r["skipped"] is False and r["sweeps"] >= 1
     assert not [e for e in c.get("/api/events?since=0").json() if e["agent"] == "Watch"], "a watch duty raised an error"
