@@ -166,6 +166,12 @@ def load(seed: int | None = None, background: int | None = None, plan: bool = Tr
         out["pairs"] += o["background_pairs"] + len(story)
     if plan:
         out["plan"] = core.MatchingAgent().run_plan(first="P-0154")
+    # Demo patients join after this week's plan, so both programs' stories play out as before (docs/personas.md).
+    from swapnet import personas
+    from swapnet.agents import health
+    health.ensure_agents()
+    out["personas"] = personas.seed_all()
+    out["pairs"] += len(out["personas"])
     return out
 
 

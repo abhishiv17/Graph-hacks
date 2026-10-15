@@ -49,7 +49,7 @@ the traversal tools; prefer them over guessing from one pair's facts.
 search comes up empty.
 - You give decision support. You never approve a transplant, allocate an organ or declare anyone medically suitable; \
 a person decides. All data is synthetic.
-- Memory: `recall` returns earlier answers about the same families or loops. Check it when a question is about specific ids. If you use a remembered answer, say when it was learned, and re-check with the live tools anything that depends on the current state (statuses, loops, tests), since the graph may have changed since.
+- Memory: `recall` returns earlier answers about the same families or loops. Check it when a question is about specific ids. If you use a remembered answer, say when it was learned, and re-check with the live tools anything that depends on the current state (statuses, loops, tests), since the graph may have changed since. `patient_memory` returns what the health watch remembers about a demo patient it follows over time (P-0901, P-0902).
 - Keep answers short: lead with the answer, then the evidence (ids, routes, numbers) as brief bullets."""
 
 
@@ -93,6 +93,10 @@ TOOLS = [
     _tool("recall", "Agent memory: earlier answered questions about any of these families or loops, newest first, "
           "with the date each answer was learned.", {"ids": {"type": "array", "items": {"type": "string"}, "maxItems": 10}},
           ["ids"]),
+    _tool("patient_memory", "What the health watch remembers about a demo patient it follows over time: current "
+          "beliefs (stage, trend, projection, swap options, the coordinator's last decision) with what each replaced, "
+          "the latest findings with dates, and hand-offs still open. Families the watch doesn't follow have none.",
+          {"pair_id": _PAIR}, ["pair_id"]),
     _tool("failure_memory", "Links the graph remembers as failed around one family (as donor side or patient side), "
           "with the test that proved each. These links are never proposed again.", {"pair_id": _PAIR}, ["pair_id"]),
 ]
@@ -248,6 +252,22 @@ class ToolBox:
         rows = db.run("Q38_recall", {"ids": ids, "limit": 20})
         return [{k: r[k] for k in ("question_id", "question", "answer", "at", "asked_by")} | {"learned": _date(r["at"])}
                 for r in rows if self.sees_scope(r["scope"])][:5]
+
+    def patient_memory(self, pair_id: str) -> dict:
+        from swapnet import personas
+        pid = next(iter(self.resolve([pair_id], "pair")))
+        p = personas.by_pair(pid)
+        if not p:
+            return {"pair_id": pid, "followed": False,
+                    "note": f"The health watch doesn't follow {pid}; only the demo patients have a memory graph."}
+        mg = personas.memory_graph(p["id"])
+        facts = db.run("Q42_current_facts", {"persona_id": p["id"]}, graph=mg)
+        findings = db.run("Q43_findings", {"persona_id": p["id"], "limit": 5}, graph=mg)
+        open_tasks = [h for h in db.run("Q48_pair_handoffs", {"pair_id": pid}) if h["status"] == "open"]
+        return {"pair_id": pid, "followed": True, "memory_graph": mg,
+                "beliefs": [{"about": f["key"], "now": f["text"], "since": _date(f["at"]), "before": f["was_text"]} for f in facts],
+                "findings": [{"on": _date(f["at"]), "kind": f["kind"], "stage": f["stage"], "text": f["text"]} for f in findings],
+                "open_handoffs": [{"agent": h["agent"], "action": h["action"]} for h in open_tasks]}
 
     def call(self, name: str, args: dict):
         if name not in {t["name"] for t in TOOLS}:
@@ -426,16 +446,74 @@ class OllamaLLM:
         return self.model in names or f"{self.model}:latest" in names
 
 
+GROQ_URL = os.getenv("GROQ_URL", "https://api.groq.com/openai/v1").rstrip("/")
+GROQ_MODEL = os.getenv("KINDRED_GROQ_MODEL", "openai/gpt-oss-120b")
+
+
+class GroqLLM:
+    """A hosted open model on Groq (OpenAI-compatible chat completions with tools). Fast enough for a live demo; the
+    same id resolver, trimming and validator as the local model apply."""
+    name = "groq"
+    max_rows = 25
+
+    def __init__(self, key: str | None = None, model: str | None = None, http=None):
+        self.key = key if key is not None else os.getenv("GROQ_API_KEY", "")
+        self.model = model or GROQ_MODEL
+        self.http = http or httpx.Client(timeout=60)
+        self.tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
+                                                        "parameters": t["input_schema"]}} for t in TOOLS]
+
+    def start(self, history: list[dict], question: str) -> list:
+        return [{"role": "system", "content": SYSTEM + "\n- Pass ids exactly as written, e.g. P-0211, not a name."},
+                *history, {"role": "user", "content": question}]
+
+    def turn(self, messages: list) -> Turn:
+        r = self.http.post(f"{GROQ_URL}/chat/completions", headers={"Authorization": f"Bearer {self.key}"}, json={
+            "model": self.model, "messages": messages, "tools": self.tools, "tool_choice": "auto", "temperature": 0})
+        r.raise_for_status()
+        body = r.json()
+        choice = (body.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        calls = []
+        for i, tc in enumerate(msg.get("tool_calls") or []):
+            fn = tc.get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            calls.append((tc.get("id") or f"call_{i}", fn.get("name", ""), args if isinstance(args, dict) else {}))
+        text = (msg.get("content") or "").strip()
+        stop = "tool_use" if calls else ("max_tokens" if choice.get("finish_reason") == "length" else "end_turn")
+        u = body.get("usage") or {}
+        usage = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0), "cache_read_input_tokens": 0}
+        return Turn(text, calls, stop, f"groq/{self.model}", usage, msg)
+
+    def add_turn(self, messages: list, turn: Turn) -> None:
+        m = {"role": "assistant", "content": turn.raw.get("content") or ""}
+        if turn.raw.get("tool_calls"):
+            m["tool_calls"] = turn.raw["tool_calls"]
+        messages.append(m)
+
+    def add_results(self, messages: list, results: list[dict]) -> None:
+        for r in results:
+            messages.append({"role": "tool", "tool_call_id": r["id"], "content": r["text"]})
+
+    def ready(self) -> bool:
+        return bool(self.key)
+
+
 def provider() -> str:
-    """KINDRED_ASK_PROVIDER picks the model; without it, Claude when a key is set, otherwise local Ollama."""
+    """KINDRED_ASK_PROVIDER picks the model; without it, Claude or Groq when its key is set, otherwise local Ollama."""
     p = os.getenv("KINDRED_ASK_PROVIDER", "").strip().lower()
-    if p in ("anthropic", "ollama"):
+    if p in ("anthropic", "ollama", "groq"):
         return p
-    return "anthropic" if (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")) else "ollama"
+    if os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"):
+        return "anthropic"
+    return "groq" if os.getenv("GROQ_API_KEY") else "ollama"
 
 
 def default_llm():
-    return ClaudeLLM() if provider() == "anthropic" else OllamaLLM()
+    return {"anthropic": ClaudeLLM, "groq": GroqLLM}.get(provider(), OllamaLLM)()
 
 
 def status() -> dict:
@@ -443,6 +521,9 @@ def status() -> dict:
     if p == "anthropic":
         return {"enabled": bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")),
                 "provider": p, "model": MODEL, "how": "set ANTHROPIC_API_KEY in .env"}
+    if p == "groq":
+        g = GroqLLM()
+        return {"enabled": g.ready(), "provider": p, "model": f"groq/{g.model}", "how": "set GROQ_API_KEY in .env"}
     llm = OllamaLLM()
     return {"enabled": llm.ready(), "provider": p, "model": f"ollama/{llm.model}",
             "how": f"start Ollama and run: ollama pull {llm.model} (the API looks for it at {llm.base})"}

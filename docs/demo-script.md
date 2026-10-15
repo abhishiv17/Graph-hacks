@@ -14,6 +14,18 @@ Scenario seed: `data/scenarios/s0031` (fixed seed, built Day 1), using the cases
 | 7 | 2:35–2:50 | "The family in Hyderabad sees only their own case, in their language." | **Your case** P-0154: "One family's test didn't match, so a new family has been found. Your place in the swap is safe." Toggle EN / हिन्दी | Q16; Patient liaison writes from returned facts only |
 | 8 | 2:50–3:00 | "Over a simulated year, measured by us: each hospital alone vs shared pool vs KindRed." | **Simulation lab** bars with 95% intervals, plus the "match published results" table filled in | Offline Monte Carlo results |
 
+### Demo patients (1 minute, can open the video)
+
+| Say | Screen | Graph / agent doing it |
+|---|---|---|
+| "No sign-up. Pick a demo patient: Sunita, kidney, six months of results on file." | **Demo patients** → Sunita | `hosp_hyd` readings, `mem_sunita` memory |
+| "A new result arrives. Her eGFR crosses 20. The health watch remembers she was on *Watch*, so this is a change, and it follows its own playbook from the graph." | **Next week**: stage → Prepare; the hand-off list fills in | Q40 → Q42 → Q44; `Task` per step in `exchange` |
+| "Each agent picks up its own task: the matching agent finds a swap right away, the scheduler books two appointments, the clerk chases a paper, the liaison messages the family. Nobody pressed approve." | Week 1 in the timeline; **See Sunita's swap on the live map** | Q48; `MatchingAgent.rematch` around P-0901 |
+| "Next week the reading falls again but the stage hasn't changed, so no repeat alert. Memory updated." | **Next week** | `Finding {kind: reading}`, `Fact` SUPERSEDES |
+| "Weeks 3 to 5: tests pass, the clerk collects the papers, the surgery is booked, the transplant is done." | **Next week** ×3; the five-step tracker fills | `health.progress`: run_lab, documents, `Loop.surgery_at`, `transplanted_at` |
+| "Rajesh: nobody fits him. A family joins in Mumbai; the agents' watch sees the pool change and forms his swap." | Rajesh, **Next week** ×2 | `watch_pool` searches again when the waiting pool changes |
+| "Reload the page: the greeting comes from memory: what changed since your last look." | Greeting banner | Q47 sessions |
+
 If the live repair misbehaves while recording: reset with `scripts/reset-demo` and replay. Never fake the repair with an animation.
 
 Stretch beats (only if built and stable): Integrity review (two pairs share a phone number and a "facilitator"; sent for human review, nothing blocked); a 2-way liver loop Ahmedabad ⇄ Mumbai with "graft 0.93% and 1.04% of body weight · donors keep 38% and 41%"; "Check a remedy" on the family screen.

@@ -148,6 +148,7 @@ def test_ask_endpoint_explains_a_missing_model(monkeypatch):
 
     # Without a key the default is the free local model; an Ollama that isn't running is reported, not crashed on.
     monkeypatch.delenv("KINDRED_ASK_PROVIDER")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setattr(ask, "OLLAMA_URL", "http://127.0.0.1:9")
     st = c.get("/api/ask/status").json()
     assert st["provider"] == "ollama" and st["enabled"] is False and "ollama pull" in st["how"]
@@ -224,3 +225,31 @@ def test_tool_calls_written_as_text_are_run_or_removed():
 
 def test_answers_only_about_ids_the_graph_lacks_are_not_remembered():
     assert ask.remember("What if P-9999 withdraws?", "P-9999 is not in the graph.", _viewer(), ["P-9999"], ["withdrawal_impact"]) is None
+
+
+class FakeGroq:
+    """Plays Groq's OpenAI-compatible /chat/completions: returns the given messages in order, records each body."""
+
+    def __init__(self, *messages):
+        self.messages, self.bodies = list(messages), []
+
+    def post(self, url, headers=None, json=None):
+        self.bodies.append(json)
+        msg = self.messages.pop(0)
+        return NS(raise_for_status=lambda: None,
+                  json=lambda: {"choices": [{"message": msg, "finish_reason": "tool_calls" if msg.get("tool_calls") else "stop"}],
+                                "usage": {"prompt_tokens": 12, "completion_tokens": 4}})
+
+
+def test_groq_provider_runs_the_same_tool_loop(monkeypatch):
+    monkeypatch.setenv("KINDRED_ASK_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    assert ask.provider() == "groq" and ask.status()["enabled"] is True
+    http = FakeGroq(
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "call_1", "type": "function", "function": {"name": "explain_loop", "arguments": '{"loop_id": "S-0076"}'}}]},
+        {"role": "assistant", "content": "S-0076 links three families; each link's reasons come from the graph."})
+    out = ask.ask("Why was S-0076 put together?", _viewer(), llm=ask.GroqLLM(key="test-key", http=http))
+    assert out["trace"][0]["tool"] == "explain_loop" and out["provider"] == "groq"
+    # The tool result goes back with the call id, as the OpenAI format requires.
+    assert any(m.get("role") == "tool" and m.get("tool_call_id") == "call_1" for m in http.bodies[1]["messages"])

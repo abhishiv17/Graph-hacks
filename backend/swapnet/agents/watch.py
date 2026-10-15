@@ -1,5 +1,6 @@
 """The agents' own clock. Every few seconds the watch looks for work nobody pressed a button for:
 held offers whose lab test is already back, overdue lab tests, committee deadlines closing in,
+demo patients' new lab readings (agents/health.py),
 and families waiting to be re-matched. Each agent acts in its own role; every action is an event
 and a Decision in the graph, so the audit trail shows it.
 
@@ -10,7 +11,7 @@ import os
 import threading
 import time
 
-from swapnet.agents import core
+from swapnet.agents import core, health
 from swapnet.graph import db
 
 INTERVAL = float(os.getenv("KINDRED_WATCH_SECONDS", "30"))
@@ -72,7 +73,7 @@ def sweep() -> dict:
     try:
         state["running"] = True
         actions = []
-        for fn in (_stale_holds, core.CrossmatchCoordinator().check_overdue, _committee, _rematch):
+        for fn in (_stale_holds, core.CrossmatchCoordinator().check_overdue, _committee, health.sweep, _rematch):
             try:
                 actions += fn()
             except Exception as e:  # one failing duty must not stop the others

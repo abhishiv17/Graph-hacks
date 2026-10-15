@@ -85,6 +85,44 @@ export type AskResult = {
 export type AskMemory = { question_id: string; question: string; answer: string; at: number; asked_by: string; about: string[] };
 export type AskStatus = { enabled: boolean; provider?: "anthropic" | "ollama"; model?: string; how?: string; tools?: string[]; offline?: boolean };
 
+/** Demo patients (GET /api/personas): followed by the health watch over simulated weeks. */
+export type PersonaReading = { result_id: string; value: number; unit: string; at: number; week: number; assessed: boolean };
+export type PersonaSummary = {
+  id: string; name: string; age: number; organ: OrganKey; pair_id: string; hospital: string; city: string; story: string;
+  measure: { key: string; label: string; unit: string; better: "higher" | "lower" }; stage: string | null; stage_label: string;
+  last: PersonaReading | null; trend: string | null; week: number; now: number; weeks_left: number;
+  case: PersonaCase | null; pair_status: string | null; transplanted: boolean;
+};
+/** The live swap a demo patient is in, and where it stands. */
+export type PersonaCase = {
+  loop_id: string; status: string; kind: string; route: string; pairs: string[]; cities: string[];
+  surgery_at: number | null; transplanted_at: number | null; p_success: number | null;
+};
+export type PersonaHandoff = {
+  task_id: string; kind: string; status: "open" | "done" | "declined" | "superseded"; agent: string; action: string;
+  payload: { agent?: string; action?: string; what?: string | null; why?: string; stage?: string; step?: number };
+  result: string | null; at: number; done_at: number | null; finding_id: string;
+};
+export type PersonaFinding = {
+  finding_id: string; at: number; week: number; stage: string; previous_stage: string | null; text: string; value: number;
+  slope_per_year: number; weeks_to_next: number | null; kind: "baseline" | "reading" | "stage_change" | "case";
+  readings: { result_id: string; value: number; at: number }[];
+  handoffs: { task_id: string; agent: string; action: string; status: string; detail: string | null }[];
+};
+export type PersonaJourney = PersonaSummary & {
+  readings: PersonaReading[];
+  facts: { key: string; value: string; text: string; at: number; was: string | null; was_text: string | null; was_at: number | null }[];
+  findings: PersonaFinding[];
+  playbook: { stage: string; step: number; agent: string; action: string; what: string | null; in_days: number | null; why: string }[];
+  sessions: { session_id: string; at: number; week: number; greeting: string }[];
+  handoffs: PersonaHandoff[];
+  appointments: { appointment_id: string; kind: string; status: string; at: number; note: string | null; booked_by: string; task_id: string | null }[];
+  pair: { status: string; urgent: boolean; needs_rematch: boolean; approval_state: string; loop_id: string | null } | null;
+  family_message: string | null; thresholds: { value: number; label: string }[];
+  stages: { key: string; label: string; rule: string }[]; sources: string[];
+  graphs: { memory: string; hospital: string; shared: string }; queries: Ran[];
+};
+
 export interface Api {
   pool(): Promise<Pool>;
   loop(id: string): Promise<any>;
@@ -115,4 +153,10 @@ export interface Api {
   askStatus(): Promise<AskStatus>;
   askHistory(): Promise<{ questions: AskMemory[] }>;
   ask(question: string, history: { role: "user" | "assistant"; content: string }[]): Promise<AskResult>;
+  // Demo patients (live API only)
+  personas(): Promise<PersonaSummary[]>;
+  persona(id: string): Promise<PersonaJourney>;
+  personaSession(id: string): Promise<{ greeting: string; session_id: string; reused: boolean }>;
+  personaAdvance(id: string): Promise<any>;
+  personaReset(id: string): Promise<any>;
 }

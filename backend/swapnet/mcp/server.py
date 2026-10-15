@@ -278,6 +278,13 @@ def recall(ids: list[str]) -> dict:
 
 
 @mcp.tool()
+def patient_memory(pair_id: str) -> dict:
+    """What the health watch remembers about a demo patient (P-0901, P-0902): beliefs with what each replaced, dated
+    findings, and hand-offs still open."""
+    return _graph_tool(lambda: _box().patient_memory(pair_id))
+
+
+@mcp.tool()
 def reset_demo() -> dict:
     """Reload the synthetic demo pools (kidney and liver) and both programs' scenarios."""
     r = scenario.load()

@@ -62,5 +62,10 @@ export function createLiveApi(): Api {
     askStatus: () => get("/api/ask/status"),
     askHistory: () => get("/api/ask/history"),
     ask: (question, history) => post("/api/ask", { question, history }),
+    personas: () => get("/api/personas"),
+    persona: (id) => get(`/api/personas/${encodeURIComponent(id)}`),
+    personaSession: (id) => post(`/api/personas/${encodeURIComponent(id)}/session`),
+    personaAdvance: (id) => post(`/api/personas/${encodeURIComponent(id)}/advance`),
+    personaReset: (id) => post(`/api/personas/${encodeURIComponent(id)}/reset`),
   };
 }

@@ -51,6 +51,21 @@ The LLM chooses the order of tool calls (Track 1's "tool selection via MCP", vis
 | Semantic | Learned failure rates per lab ("DQ-untyped links from this lab now get a lower success estimate"); ABO and antigen rules as graph data |
 | Procedural | Policies as data: intake YAML, playbook nodes such as "positive crossmatch on a 3-way with a fallback → use the stored 2-way, release the third pair" |
 | Per tenant | One graph per hospital plus the shared exchange graph |
+| Per person | One memory graph per demo patient (`mem_sunita`, `mem_rajesh`): `Session`, `Finding`, `Fact` (`SUPERSEDES`), `Playbook`/`Step` |
+
+### Health watch and scheduler (demo patients, docs/personas.md)
+
+| Agent | What it does |
+|---|---|
+| **Health watch** | Reads a demo patient's readings (hospital graph), works out stage, trend and projection against configured thresholds, compares with the stage it remembers (memory graph). Only a *more urgent* stage triggers its playbook, so it never repeats an alert |
+| **Scheduler** | Books appointments in the hospital graph (fistula assessment, nephrology review, weekly MELD labs, donor work-up slot) and the transplant surgery once the committee file is complete; never double-books one already ahead |
+| Matching agent | Marks the pair urgent (priority bonus `urgent` in intake.yaml), searches 2-way then 3-way swaps around it and forms the swap at once; while the pair waits, searches again whenever the pool changes |
+| Crossmatch coordinator | Runs the tests on the patient's swap the week after it forms |
+| Committee clerk, Patient liaison | Ask the hospitals for missing papers and file the committee case; write the family's message from the stage and the swap only |
+
+The demo patients' journeys are fully agentic: no step waits for a person (docs/personas.md). The exchange story's repairs (S-0076, L-0034) still wait for the coordinator's approval.
+
+Hand-offs are `Task {kind: 'handoff'}` nodes `ASSIGNED_TO` an agent and `ABOUT` the pair. Each agent picks up its own open tasks (`health.run_handoffs`), from the API and from the background watch.
 
 ## MCP tools (18 named, plus read-only Cypher)
 

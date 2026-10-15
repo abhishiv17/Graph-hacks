@@ -43,6 +43,16 @@ class NotFound extends Error {
   status = 404;
 }
 
+// Demo patients run their agents live; the recorded snapshot has no journey to replay.
+const PERSONAS_LIVE = "Demo patients need the live API: their agents run in the backend. Start it and the page reconnects on its own.";
+const personasOffline = {
+  async personas() { throw new Error(PERSONAS_LIVE); },
+  async persona() { throw new Error(PERSONAS_LIVE); },
+  async personaSession() { throw new Error(PERSONAS_LIVE); },
+  async personaAdvance() { throw new Error(PERSONAS_LIVE); },
+  async personaReset() { throw new Error(PERSONAS_LIVE); },
+};
+
 export function createOfflineApi(): Api {
   return {
     async pool() {
@@ -138,6 +148,7 @@ export function createOfflineApi(): Api {
       return { enabled: rec.length > 0, offline: true, recorded: rec.map((r) => r.question) } as any;
     },
     async askHistory() { return { questions: [] }; },
+    ...personasOffline,
     async ask(question) {
       const rec = ((await load()).ask ?? []) as { question: string; result: any }[];
       const hit = rec.find((r) => r.question.trim().toLowerCase() === question.trim().toLowerCase());

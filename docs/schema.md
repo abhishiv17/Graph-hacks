@@ -91,6 +91,24 @@ If an edge alias isn't referenced elsewhere in a query, FalkorDB only checks tha
 
 Approval deadlines (Delhi HC, *Amar Singh Bhatia*, Jan 2024): 10 days to process, 14 days to verify documents, 4–6 weeks to schedule the interview, 6–8 weeks end to end (the design's "day 3 of 42"), 30 days for appeal. Mirror only `approval_state` and `approval_due` into the exchange `Pair`.
 
+## Demo patients (docs/personas.md)
+
+Hospital graph additions: `(Pair)-[:HAS_RESULT]->(LabResult {result_id, kind, value, unit, at, week, assessed})` and
+`(Pair)-[:HAS_APPOINTMENT]->(Appointment {appointment_id, kind, status: done|booked, at, booked_by})`. Exchange: `Loop.surgery_at`, `Loop.transplanted_at`, `Pair.searched_pool`, `Pair.docs_requested`.
+
+Exchange additions: `Pair.urgent`; `(Task {kind: 'handoff', action, status, finding_id, persona, step})-[:ASSIGNED_TO]->(Agent)`, `-[:ABOUT]->(Pair)`.
+
+One memory graph per persona (`mem_sunita`, `mem_rajesh`):
+
+| Pattern | Kind of memory |
+|---|---|
+| `(:Person {persona_id, pair_id, base, week})` | The persona and its simulated clock |
+| `(Person)-[:HAD_SESSION]->(Session {at, created, greeting})` | Conversation / visit history |
+| `(Person)-[:HAS_FINDING]->(Finding {kind, stage, previous_stage, text, slope_per_year, weeks_to_next})-[:BASED_ON]->(Reading)` | Episodic |
+| `(Finding)-[:TRIGGERED]->(Playbook)`, `(Finding)-[:HANDED_OFF]->(Handoff {task_id, agent, status})` | Episodic, links to the shared hand-offs |
+| `(Person)-[:KNOWS]->(Fact {key, value, text, current})-[:SUPERSEDES]->(Fact)` | Semantic, with history |
+| `(Person)-[:FOLLOWS]->(Playbook {stage})-[:STEP {order}]->(Step {agent, action, what, in_days, why})` | Procedural |
+
 ## Knowledge graph (stretch)
 
 `(Herb)-[:CONTAINS]->(Compound)-[:INHIBITS|INDUCES]->(Enzyme)`, `(Drug)-[:METABOLISED_BY]->(Enzyme)`, with `evidence_tier` (A–E, or "studied, no effect") on each interaction edge. Imported from AyurDisha during the event.

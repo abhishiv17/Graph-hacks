@@ -9,7 +9,7 @@ import { DataScope, EmptyState, ErrorState, EvalTag, Field, Loading, OrganTag, S
 import { Icon } from "@/components/app/icons";
 import { useLoop, usePairs } from "@/lib/data/hooks";
 import { useAction, useData, useResource } from "@/lib/data/source";
-import type { AgentState, PairFacts, Pool, PoolLink } from "@/lib/data/types";
+import type { AgentState, PairFacts, PersonaSummary, Pool, PoolLink } from "@/lib/data/types";
 import { loopRoute, pct, statusOf, type PairRow } from "@/lib/data/derive";
 import { ORGAN_NAMES, organOf, organOfLoop } from "@/lib/organs";
 import { useProgram } from "@/lib/program";
@@ -31,7 +31,13 @@ function LivePool() {
   const [q, setQ] = useState("");
   const [hospital, setHospital] = useState("");
   const [filter, setFilter] = useState<"all" | "in_loop" | "waiting">("all");
-  const { organ, view, includes } = useProgram();
+  const { organ, view, includes, program, setProgram } = useProgram();
+  // A link such as a demo patient's "see it on the map" names its program; follow it on every navigation.
+  useEffect(() => {
+    const want = params.get("program");
+    if ((want === "kidney" || want === "liver" || want === "all") && want !== program) setProgram(want);
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fromPatient = !!params.get("patient");
   const factsRes = useResource(`pairs:${organ ?? "all"}`, (a) => a.pairs(organ), 10000);
   const facts = useMemo(() => new Map((factsRes.data?.pairs ?? []).map((f) => [f.pair_id, f])), [factsRes.data]);
   // A switch of program drops anything picked in the other program, so nothing from it stays on screen.
@@ -102,13 +108,14 @@ function LivePool() {
         </div>
       </div>
       {act.error && <div className="mb-4"><ErrorState error={new Error(act.error)} what="that action" /></div>}
+      <PatientBanner id={params.get("patient")} />
 
-      <PageIntro id="pool" what={<>The shared pool of families from every hospital. Each dot is a hospital. Each line is one planned <Term k="link">donation</Term>: a donor from one family gives a kidney, or part of their liver, to the patient of another family. Lines that close a ring make one <Term k="loop">swap loop</Term>. {view ? <>This view shows the {view.label.toLowerCase()} program only.</> : <>All programs: kidney and liver loops are listed side by side, but families only ever swap within their own program; the line colour shows which.</>}</>}
+      {!fromPatient && <PageIntro id="pool" what={<>The shared pool of families from every hospital. Each dot is a hospital. Each line is one planned <Term k="link">donation</Term>: a donor from one family gives a kidney, or part of their liver, to the patient of another family. Lines that close a ring make one <Term k="loop">swap loop</Term>. {view ? <>This view shows the {view.label.toLowerCase()} program only.</> : <>All programs: kidney and liver loops are listed side by side, but families only ever swap within their own program; the line colour shows which.</>}</>}
         steps={[
           <>Scroll or pinch to zoom; drag to move around the map.</>,
           <>Click any single line to see that donation: who gives to whom, how likely it is to hold, and the reasons stored in the graph.</>,
           <>Click a hospital to see only its families&rsquo; donations, or pick a swap from the list on the right.</>,
-        ]} />
+        ]} />}
 
       <dl className="mb-4 grid grid-cols-2 lg:grid-cols-4 border rounded-[10px] overflow-hidden" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
         {([
@@ -278,6 +285,23 @@ function ActionButton({ label, hint, onClick, disabled, primary, icon }: { label
         {icon && <Icon name={icon} size={15} />} {label}
       </button>
       <p className="mt-1 text-[0.72rem] leading-snug muted">{hint}</p>
+    </div>
+  );
+}
+
+/** Arriving from a demo patient's journey: say whose swap the map is showing, and how to get back. */
+function PatientBanner({ id }: { id: string | null }) {
+  const r = useResource<PersonaSummary[]>(id ? "personas" : null, (a) => a.personas());
+  const p = r.data?.find((x) => x.id === id);
+  if (!p) return null;
+  const c = p.case;
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border px-4 py-3" style={{ borderColor: "var(--line)", background: "var(--sage-pale)" }}>
+      <p className="text-sm">
+        <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{p.name}&rsquo;s {p.transplanted ? "transplant" : "swap"}</span>
+        {c ? <> · {c.loop_id} · {c.route} · highlighted on the map</> : <> · not in a swap yet; the agents are still searching</>}
+      </p>
+      <Link href={`/patients/${p.id}`} className="btn btn-sm">Back to {p.name.split(" ")[0]}&rsquo;s journey</Link>
     </div>
   );
 }

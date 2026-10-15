@@ -92,7 +92,7 @@ def setup_schema() -> None:
 
 def reset_all() -> None:
     for g in db().list_graphs():
-        if g == config.EXCHANGE or g.startswith("hosp_"):
+        if g == config.EXCHANGE or g.startswith("hosp_") or g.startswith("mem_"):
             db().select_graph(g).delete()
 
 

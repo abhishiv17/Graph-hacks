@@ -85,8 +85,10 @@ def _priority_bonus() -> dict[str, float]:
     b = config.policies()["matching"]["priority_bonus"]
     rows = db.raw("MATCH (p:Pair {status: 'waiting'})-[:HAS_PATIENT]->(r:Patient) "
                   "RETURN p.pair_id AS id, p.organ AS organ, r.abo AS abo, r.cpra AS cpra, r.meld AS meld, "
-                  "coalesce(p.failed_count, 0) AS f")
-    return {r["id"]: organs.get(r["organ"]).priority(r, b) + (b["failed_before"] if r["f"] > 0 else 0) for r in rows}
+                  "coalesce(p.failed_count, 0) AS f, coalesce(p.urgent, false) AS urgent")
+    # `urgent`: the health watch saw a demo patient's results cross a threshold (agents/health.py).
+    return {r["id"]: organs.get(r["organ"]).priority(r, b) + (b["failed_before"] if r["f"] > 0 else 0)
+                     + (b.get("urgent", 0) if r["urgent"] else 0) for r in rows}
 
 
 def _with_fallbacks(rows: list[dict]) -> list[Candidate]:

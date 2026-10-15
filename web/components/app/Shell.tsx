@@ -12,19 +12,21 @@ import { ORGANS, ORGAN_NAMES, organOf } from "@/lib/organs";
 import type { Viewer } from "@/lib/data/types";
 import { gsap, useGSAP } from "@/components/landing/gsap";
 
-export const NAV_GROUPS = [
-  { title: "Run the exchange", items: [
-    { href: "/pool", label: "Live pool", icon: "pool", sub: "Map of every planned donation" },
+// Four places to go first; everything else waits under "More tools" so the first look stays simple.
+export const NAV_GROUPS: { title: string; collapsed?: boolean; items: { href: string; label: string; icon: string; sub: string }[] }[] = [
+  { title: "Start here", items: [
+    { href: "/patients", label: "Demo patients", icon: "user", sub: "Agents follow one patient to a transplant" },
+    { href: "/pool", label: "Live map", icon: "pool", sub: "Every planned swap across India" },
     { href: "/ask", label: "Ask KindRed", icon: "search", sub: "Questions answered from the graph" },
+    { href: "/graph", label: "How it works", icon: "database", sub: "FalkorDB graphs, queries, agents" },
+  ] },
+  { title: "More tools", collapsed: true, items: [
     { href: "/swaps", label: "Swaps", icon: "swaps", sub: "Tests, failures, repairs" },
     { href: "/committee", label: "Committee review", icon: "committee", sub: "Program checklists and papers" },
-    { href: "/integrity", label: "Integrity", icon: "integrity", sub: "Data and workflow checks" },
     { href: "/case/P-0154", label: "Family view", icon: "family", sub: "What a family sees" },
-  ] },
-  { title: "Understand it", items: [
+    { href: "/integrity", label: "Integrity", icon: "integrity", sub: "Data and workflow checks" },
     { href: "/lab", label: "Simulation lab", icon: "replay", sub: "Each program's scenario, step by step" },
     { href: "/impact", label: "Impact", icon: "lab", sub: "A simulated year, measured" },
-    { href: "/graph", label: "How it works", icon: "database", sub: "FalkorDB graphs, queries, agents" },
     { href: "/audit", label: "Audit trail", icon: "audit", sub: "Every action and decision" },
   ] },
 ];
@@ -33,6 +35,7 @@ export const NAV = NAV_GROUPS.flatMap((g) => g.items);
 function crumbs(path: string): { label: string; href?: string }[] {
   const seg = path.split("/").filter(Boolean);
   if (seg[0] === "case") return [{ label: `Family view · ${seg[1]}` }];
+  if (seg[0] === "patients") return seg.length > 1 ? [{ label: "Demo patients", href: "/patients" }, { label: seg[1][0].toUpperCase() + seg[1].slice(1) }] : [{ label: "Demo patients" }];
   const base = NAV.find((n) => path === n.href || path.startsWith(n.href + "/"));
   if (!base) return [];
   return seg.length > 1 ? [{ label: base.label, href: base.href }, { label: decodeURIComponent(seg[1]) }] : [{ label: base.label }];
@@ -73,9 +76,8 @@ function NavList({ path, onNavigate }: { path: string; onNavigate?: () => void }
   const { view } = useProgram();
   return (
     <nav aria-label="Workspace" className="flex-1 px-3 py-2 overflow-y-auto">
-      {NAV_GROUPS.map((g) => (
-        <div key={g.title} className="mb-5">
-          <p className="px-3 pb-1.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em]" style={{ color: "#6F8F80" }}>{g.title}</p>
+      {NAV_GROUPS.map((g) => {
+        const list = (
           <ul className="space-y-0.5">
             {g.items.map((item) => {
               // The family view opens the current program's story family.
@@ -97,8 +99,23 @@ function NavList({ path, onNavigate }: { path: string; onNavigate?: () => void }
               );
             })}
           </ul>
-        </div>
-      ))}
+        );
+        const heading = "px-3 pb-1.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em]";
+        // A collapsed group opens on its own when the current screen is inside it.
+        return g.collapsed ? (
+          <details key={g.title} className="mb-5 group" open={g.items.some((i) => isActive(path, i.href)) || undefined}>
+            <summary className={`${heading} cursor-pointer list-none flex items-center gap-1`} style={{ color: "#6F8F80" }}>
+              <Icon name="chevron" size={12} className="transition-transform group-open:rotate-90" />{g.title}
+            </summary>
+            {list}
+          </details>
+        ) : (
+          <div key={g.title} className="mb-5">
+            <p className={heading} style={{ color: "#6F8F80" }}>{g.title}</p>
+            {list}
+          </div>
+        );
+      })}
     </nav>
   );
 }
@@ -314,7 +331,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             <Avatar />
           </div>
         </header>
-        <main id="main" className="flex-1 px-4 sm:px-6 lg:px-10 pt-4 pb-12 max-w-[1480px] w-full"><div ref={content}><DemoGuide />{children}</div></main>
+        <main id="main" className="flex-1 px-4 sm:px-6 lg:px-10 pt-4 pb-12 max-w-[1480px] w-full"><div ref={content}>{(path.startsWith("/pool") || path.startsWith("/swaps")) && <DemoGuide />}{children}</div></main>
       </div>
     </div>
   );

@@ -26,9 +26,12 @@ export default function DemoGuide() {
   const { view } = useProgram();
   const [open, setOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
+  const [fromPatient, setFromPatient] = useState(false);
   useEffect(() => { try { setHidden(localStorage.getItem("kindred.guide") === "hidden"); } catch { /* storage blocked */ } }, []);
+  // Arriving from a demo patient's journey, the map is about that patient: the coordinator story stays out of the way.
+  useEffect(() => { setFromPatient(new URLSearchParams(window.location.search).has("patient")); }, []);
   const d = pool.data?.demo;
-  if (!d || !pool.data) return null;
+  if (!d || !pool.data || fromPatient) return null;
   const liver = view?.name === "liver";
   const ls = story(pool.data.loops, ORGANS.liver);
   const hero = liver ? ls.hero ?? "L-0034" : d.hero_loop ?? "S-0076";

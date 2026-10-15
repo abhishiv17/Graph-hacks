@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from swapnet import access, config, organs, programs, scenario
+from swapnet import access, config, organs, personas, programs, scenario
 from swapnet.access import Viewer
 from contextlib import asynccontextmanager
 
@@ -18,6 +18,7 @@ import httpx
 
 from swapnet.agents import ask as ask_agent
 from swapnet.agents import core, watch
+from swapnet.agents import health as health_agent
 from swapnet.graph import db
 
 
@@ -483,9 +484,15 @@ def ask(body: AskBody, v: Viewer = Depends(access.viewer)):
     try:
         return ask_agent.ask(q, v, body.history)
     except httpx.TimeoutException:
-        raise HTTPException(504, "the local model took too long to answer; try a narrower question")
+        raise HTTPException(504, f"the model ({st['model']}) took too long to answer; try a narrower question")
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        if code == 429:
+            raise HTTPException(429, "the model is rate limited right now; try again in a minute")
+        raise HTTPException(503 if code in (401, 403) else 502, f"{st['model']} returned {code}"
+                            + ("; check the API key in .env" if code in (401, 403) else ""))
     except httpx.HTTPError as e:
-        raise HTTPException(503, f"couldn't reach the local model through Ollama: {e}")
+        raise HTTPException(503, f"couldn't reach {st['model']}: {type(e).__name__}")
     except anthropic.AuthenticationError:
         raise HTTPException(503, "the Anthropic API key was rejected; check ANTHROPIC_API_KEY in .env")
     except anthropic.RateLimitError:
@@ -506,6 +513,67 @@ def agents():
 def agents_sweep():
     """Run the watch now instead of waiting for the next tick."""
     return watch.sweep()
+
+
+# ---------------------------------------------------------------- demo patients (docs/personas.md)
+
+def _persona(pid: str) -> dict:
+    p = personas.get(pid)
+    if not p:
+        raise HTTPException(404, f"no demo patient {pid!r}")
+    if not db.raw("MATCH (me:Person {persona_id: $p}) RETURN me.week AS w", {"p": pid}, graph=personas.memory_graph(pid)):
+        raise HTTPException(409, "the demo patients aren't loaded yet; press Restart demo")
+    return p
+
+
+@app.get("/api/personas")
+def persona_list():
+    """The demo patients a visitor can open without signing up, with their current stage."""
+    out = []
+    for pid in personas.ids():
+        try:
+            _persona(pid)
+            out.append(personas.summary(pid))
+        except HTTPException:
+            continue
+    return out
+
+
+@app.get("/api/personas/{pid}")
+def persona_detail(pid: str):
+    """One demo patient's journey: readings (hospital graph), memory (persona graph), hand-offs (exchange graph)."""
+    _persona(pid)
+    return personas.journey(pid)
+
+
+@app.post("/api/personas/{pid}/session")
+def persona_session(pid: str):
+    """A visit to the patient's page. The greeting comes from memory: what changed since the last visit."""
+    _persona(pid)
+    with core.LOCK:
+        return personas.start_session(pid)
+
+
+@app.post("/api/personas/{pid}/advance")
+def persona_advance(pid: str):
+    """One simulated week: new families may join, the agents move the case one step on their own, a new reading
+    arrives, the health watch assesses it and agents pick up their hand-offs. No step waits for a person."""
+    _persona(pid)
+    with core.LOCK, db.track() as tr:
+        try:
+            r = health_agent.advance(pid)
+        except health_agent.EndOfJourney as e:
+            raise HTTPException(409, str(e))
+    return {**r, "queries": tr.ran}
+
+
+@app.post("/api/personas/{pid}/reset")
+def persona_reset(pid: str):
+    """Replay this patient's journey from the six months on file."""
+    if not personas.get(pid):
+        raise HTTPException(404, f"no demo patient {pid!r}")
+    with core.LOCK:
+        return personas.reset(pid)
 
 
 @app.get("/api/family/{pair_id}")
@@ -557,7 +625,7 @@ def graph_overview():
     """What lives in FalkorDB right now, and which named queries have been running against it."""
     graphs = []
     for g in sorted(db.db().list_graphs()):
-        if g != config.EXCHANGE and not g.startswith("hosp_"):
+        if g != config.EXCHANGE and not g.startswith(("hosp_", "mem_")):
             continue
         nodes = db.raw("MATCH (n) RETURN labels(n)[0] AS label, count(*) AS n ORDER BY n DESC", graph=g)
         rels = db.raw("MATCH ()-[r]->() RETURN type(r) AS type, count(*) AS n ORDER BY n DESC", graph=g)

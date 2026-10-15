@@ -32,7 +32,7 @@ export default function Swaps() {
         ))}
       </div>
       {pool.error && !pool.data ? <ErrorState error={pool.error} onRetry={pool.reload} what="the exchanges" /> : !pool.data ? <Loading rows={6} /> :
-        loops.length === 0 ? <EmptyState title="No exchanges match">Try another status, or load the demo pool from the Live pool screen.</EmptyState> : (
+        loops.length === 0 ? <EmptyState title="No exchanges match">Try another status, or load the demo pool from the Live map screen.</EmptyState> : (
         <div className="panel overflow-x-auto">
           <table className="table">
             <thead><tr><th>Exchange</th>{!view && <th>Program</th>}<th>Route</th><th>Status</th><th>p(all succeed)</th><th>Expected</th><th>Created</th></tr></thead>

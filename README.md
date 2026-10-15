@@ -20,8 +20,9 @@ The graph finds the swap loops inside each program, a CP-SAT optimiser ranks the
 - **Loop finding is graph traversal.** 2-way and 3-way swaps are cycles over `CAN_GIVE_TO` edges (Q04, Q05). `algo.WCC` splits the pool into independent parts before matching (Q07), and `algo.betweenness` finds bridge families whose withdrawal would break the most loops (Q19).
 - **Repair is a local, multi-hop search.** When a test fails, Q11 searches only 2 hops around the released families. Every other loop stays untouched, and the screen says how many.
 - **Memory lives in the graph.** A failed test becomes a `FAILED` edge that is never proposed again, plus a `Failure` node. Every agent step and human approval is a `Decision` with `BASED_ON` edges to the facts it used. Agents hand off through `Offer`, `Crossmatch` and `Task` nodes, so a restart loses nothing.
+- **Demo patients the agents follow over months.** Open **Demo patients** (`/patients`), no sign-up: Sunita (kidney, eGFR falling) and Rajesh (liver, MELD rising) each have six months of synthetic history. Press **Next week** and a new lab result arrives. The **health watch** compares the trend with sourced thresholds and with the stage it *remembers*. Only a more urgent stage triggers its playbook, which it reads from the graph. It then hands one `Task` per step to the matching agent (urgent swap search), the scheduler (appointments), the committee clerk and the patient liaison. From there it is fully agentic, with no approve button: each week the case moves one step on its own (swap formed, tests run, papers collected, surgery booked, transplant done), and an urgent patient still waiting is searched again whenever the pool changes. **See the swap on the live map** jumps to the map with it in focus. Readings stay in the hospital's private graph; each patient's memory (sessions, findings, beliefs that supersede older ones, playbooks) lives in a graph of its own (`mem_sunita`, `mem_rajesh`). See docs/personas.md.
 - **One graph per tenant.** Each hospital has its own private graph (`hosp_hyd`, …) holding names, full HLA typing and documents. The shared `exchange` graph holds only what matching needs.
-- **An agent that reasons over the graph, and never writes Cypher.** In **Ask KindRed** (`/ask`), a language model answers coordinators' questions ("What breaks if Bengaluru's P-0211 withdraws?", "Find a new loop for Kolkata: 2-way first, then 3-way") by choosing from 13 read-only graph tools. By default it runs **Llama 3.1 8B locally through Ollama** (free, no key, no data leaves the machine); set a Claude key to use Claude instead. Each tool is a named, parameterised query in `backend/queries/`, run through `GRAPH.RO_QUERY` so FalkorDB itself refuses a write. Every id is resolved against the graph before any traversal, so an unknown family gets "not in the graph" instead of a guess. Every answer shows the tool trace (tool, arguments, queries, latency, rows) and the graph paths it rests on, and a validator replaces any draft that names an id no query returned. Verified answers are remembered as `Question` nodes and recalled in later sessions, scoped to the viewer's hospitals and program. The same tools, plus the matching and workflow tools, are served to any MCP client: 28 in all.
+- **An agent that reasons over the graph, and never writes Cypher.** In **Ask KindRed** (`/ask`), a language model answers coordinators' questions ("What breaks if Bengaluru's P-0211 withdraws?", "Find a new loop for Kolkata: 2-way first, then 3-way") by choosing from 14 read-only graph tools. It runs on **Groq** (hosted `openai/gpt-oss-120b`, fast; set `GROQ_API_KEY`), **Claude** (`ANTHROPIC_API_KEY`), or **Llama 3.1 8B locally through Ollama** (free, no key, no data leaves the machine). Each tool is a named, parameterised query in `backend/queries/`, run through `GRAPH.RO_QUERY` so FalkorDB itself refuses a write. Every id is resolved against the graph before any traversal, so an unknown family gets "not in the graph" instead of a guess. Every answer shows the tool trace (tool, arguments, queries, latency, rows) and the graph paths it rests on, and a validator replaces any draft that names an id no query returned. Verified answers are remembered as `Question` nodes and recalled in later sessions, scoped to the viewer's hospitals and program. The same tools, plus the matching and workflow tools, are served to any MCP client: 29 in all.
 
 Programs never mix: each edge query matches only its own organ, every loop query requires one organ per loop, and an organ's rule refuses another organ's pair (`OrganMismatch`). Thresholds the project has a published source for (GRWR ≥ 0.8%, donor keeps ≥ 30%, MFI 2000) are program configuration; checks without an authoritative number are statuses (ELIGIBLE, REVIEW_REQUIRED, UNKNOWN, INELIGIBLE).
 
@@ -50,8 +51,8 @@ docker compose up --build -d
 The first build takes about 3–5 minutes (it downloads FalkorDB, Python and Node images). After that:
 
 1. Open **http://localhost:3001**. That's the homepage.
-2. Click into the workspace, or go straight to **http://localhost:3001/pool**.
-3. Press **Restart demo**. It generates 153 kidney and 43 liver synthetic pairs across 11 hospitals and runs the first match. Then follow the demo story below.
+2. Click **Meet a demo patient** (or go to **http://localhost:3001/patients**). If it says the patients aren't loaded, press **Load the demo**.
+3. For the exchange story, open the workspace (**http://localhost:3001/pool**) and press **Restart demo**. It generates 154 kidney and 44 liver synthetic pairs across 11 hospitals (including the two demo patients) and runs the first match. Then follow the demo story below.
 
 Useful extras:
 
@@ -102,7 +103,9 @@ On Windows, `.\scripts\dev.ps1` starts all three in separate windows.
 
 ### Optional settings
 
-**Ask KindRed needs a model.** Two options; every other screen works without either.
+**Ask KindRed needs a model.** Three options; every other screen works without any of them.
+
+- **Groq (fast, hosted):** get a free key at console.groq.com, then in `.env` set `GROQ_API_KEY` and `KINDRED_ASK_PROVIDER=groq` (model `openai/gpt-oss-120b`, override with `KINDRED_GROQ_MODEL`).
 
 - **Free, local (default):** install [Ollama](https://ollama.com), then run `ollama pull llama3.1:8b`. Leave Ollama running; the backend in Docker reaches it at `host.docker.internal:11434`. On a laptop CPU an answer takes about a minute (two model turns over a ~3,000-token prompt). Set `KINDRED_OLLAMA_MODEL` to try another model with tool support.
 - **Claude:** copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY` and `KINDRED_ASK_PROVIDER=anthropic` (model `claude-opus-5-5`, override with `KINDRED_ASK_MODEL`). Answers take seconds.
@@ -115,7 +118,7 @@ On Windows, `.\scripts\dev.ps1` starts all three in separate windows.
 |---|---|---|
 | Tests (needs FalkorDB; resets the demo graph) | `docker compose exec backend sh -c "pip install -q pytest && pytest -q"` | `pytest -q` |
 | Simulation lab, 20 runs, about 4–5 min | `docker compose run --rm backend python -m swapnet.sim.lab --runs 20` | `python -m swapnet.sim.lab --runs 20` |
-| MCP server (28 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
+| MCP server (29 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
 
 The simulation writes `data/generated/sim_results.json`. The Simulation screen reads it from the API, so refresh the page after a run.
 
@@ -125,12 +128,14 @@ With the stack up, these walk the kidney story through the API (on Windows Power
 
 ```bash
 curl http://localhost:8000/api/health                       # {"ok":true}
-curl -X POST http://localhost:8000/api/demo/reset           # 196 pairs, plan #42
+curl -X POST http://localhost:8000/api/demo/reset           # 198 pairs, plan #42
 curl -X POST http://localhost:8000/api/demo/add-chennai     # the Chennai family joins
 curl -X POST http://localhost:8000/api/loops/S-0076/lab     # Bengaluru -> Kolkata is positive (DQ7)
 curl http://localhost:8000/api/loops/S-0076                 # proposal.task_id and the recommended repair
 curl -X POST http://localhost:8000/api/tasks/<task_id>/approve -H "Content-Type: application/json" -d '{"choice":"recommended"}'
 curl -X POST http://localhost:8000/api/loops/L-0034/lab     # liver: GRWR 0.74% fails, repair proposed
+curl -X POST http://localhost:8000/api/personas/sunita/advance   # demo patient: eGFR 19, stage Prepare, 6 hand-offs
+curl http://localhost:8000/api/personas/sunita                   # readings, memory, hand-offs, appointments
 ```
 
 Replace `<task_id>` with the id from the previous response (PowerShell rejects the `<` `>` characters). The guards answer plainly:
@@ -141,6 +146,7 @@ Replace `<task_id>` with the id from the previous response (PowerShell rejects t
 | `GET /api/hospital/XYZ`, `GET /api/family/P-9999`, `POST /api/tasks/T-nope/approve` | 404: not in the graph |
 | Approving a task twice | 409: already done |
 | `-H "X-KindRed-User: observer"` on a lab run | 403: read-only role |
+| `POST /api/personas/sunita/advance` after week 6 | 409: the scripted readings ran out; `POST /api/personas/sunita/reset` replays |
 
 To look at the graph directly, open http://localhost:3000, pick `exchange` and run `MATCH (a:Pair)-[f:FAILED]->(b:Pair) RETURN a, f, b`.
 
@@ -181,6 +187,7 @@ What this does and doesn't show:
 | "Which families hold the most loops together?" | `bridge_families`: `algo.betweenness` (Q19) |
 | "What has the graph learned from failed tests around P-0211?" | `failure_memory`: FAILED edges and their tests (Q35) |
 | "What happens if P-9999 withdraws?" | The id resolver (Q36) answers "not in the graph"; nothing else runs |
+| "What do the agents remember about Sunita, P-0901?" | `patient_memory`: her current beliefs with what each replaced, dated findings, open hand-offs (Q42, Q43, Q48) |
 
 Earlier verified answers are stored in the graph (Q37) and recalled with their dates (Q38, Q39).
 
@@ -188,6 +195,7 @@ Earlier verified answers are stored in the graph (Q37) and recalled with their d
 
 | Screen | What it's for |
 |---|---|
+| **Demo patients** (`/patients`, `/patients/sunita`, `/patients/rajesh`) | Start here. Where the case stands in five steps, **Next week**, **See the swap on the live map**, the trend with sourced thresholds, what the agents did week by week, and "Under the hood" (memory, playbook, appointments, queries) |
 | **Program switcher** (sidebar) | Kidney, Liver, or All programs (an operational overview that lists both side by side, never one mixed graph). Every screen follows it; `?program=liver` links work too. |
 | **Live pool** (`/pool`) | A zoomable map of India with every planned donation as a line, coloured by program. Each program has its own family columns (kidney: cPRA, HLA typing, crossmatch; liver: MELD and weight, graft suitability, anatomical, donor and recipient evaluation). Family details mark shared exchange data versus what stays private to the hospital. |
 | **Swaps** (`/swaps`, `/swaps/S-0076`, `/swaps/L-0034`) | Each swap's graph, evidence per recommendation (facts, constraints satisfied, flags, test, human-approval status), the program's committee checklist, a proposed (synthetic) timeline, offers, tests, failure and repair proposal. |
@@ -203,6 +211,7 @@ A **demo guide** at the top of every screen shows the five story steps and offer
 
 ## Demo story (about 3 minutes)
 
+0. **Demo patients** → Sunita. Press **Next week**: eGFR 19 crosses the pre-emptive window, the health watch hands out its *Prepare* playbook, and the matching agent forms a 2-way swap on its own. Press **See Sunita's swap on the live map**. Keep pressing **Next week**: the lab tests pass, the clerk collects the papers, the surgery is booked, and in week 5 the transplant is done; no button approved anything. Rajesh (liver): nobody fits him at first; in week 2 a new family joins in Mumbai, the agents' watch notices, and his swap forms. Reload a journey and the greeting says what changed since your last look.
 1. **Live pool**: 153 synthetic pairs across 11 hospitals; this week's plan includes swap S-0076, Hyderabad → Bengaluru → Kolkata (46% chance every link holds, 2.0 of 3 expected thanks to its 2-way fallback). Zoom in and click its lines.
 2. **Add a new family (Chennai)**: the intake agent checks the rules and adds the family's links to the graph.
 3. Open S-0076 and press **Run lab tests**. Hyderabad → Bengaluru is negative; Bengaluru → Kolkata is positive (DQ7, never typed). The link is stored as a FAILED edge and never proposed again.
@@ -212,10 +221,10 @@ A **demo guide** at the top of every screen shows the five story steps and offer
 
 ## Layout
 
-- `backend/queries/` – every Cypher query, named Q00–Q39. Each screen shows which ones ran and how long they took.
+- `backend/queries/` – every Cypher query, named Q00–Q49. Each screen shows which ones ran and how long they took.
 - `backend/swapnet` is the Python package (the project's working name was SwapNet).
 - `backend/swapnet/graph` – FalkorDB access, publishing from private hospital graphs to the shared exchange graph, and a log of every query for the How it works screen.
-- `backend/swapnet/agents` – intake, crossmatch coordinator, matching, committee clerk, family messages.
+- `backend/swapnet/agents` – intake, crossmatch coordinator, matching, committee clerk, family messages, and (`health.py`) the health watch and scheduler for the demo patients; `swapnet/personas.py` seeds them and reads their journey; `data/params/personas.yaml` holds who they are, their readings, thresholds with sources, and playbooks.
 - `backend/swapnet/organs` – the organ programs (kidney, liver) behind one interface; `swapnet/programs.py` – shared services (pair facts, evidence, checklists, timelines, integrity, scenarios); `swapnet/access.py` – program- and hospital-scoped access for demo identities (`data/policies/access.yaml`; there is no authentication).
 - `backend/swapnet/optimiser` – CP-SAT on expected transplants (accounts for test failures and fallbacks).
 - `backend/swapnet/sim` – day-by-day yearly simulation of 4 policies, validated against Saidman et al. 2006.

@@ -1,0 +1,136 @@
+# Demo patients (docs/personas.md). Two synthetic people the agents follow over months, so a visitor can see
+# memory and hand-offs without signing up. Every person, reading and appointment here is synthetic.
+#
+# history: monthly readings already on file, as [days before today, value].
+# future: what each press of "Next week" brings, one reading per simulated week.
+# Thresholds are program configuration with the source for each number; the health watch only compares readings
+# with them and never makes a diagnosis.
+
+personas:
+  sunita:
+    name: Sunita Reddy
+    age: 48
+    organ: kidney
+    pair_id: P-0901
+    hospital: HYD
+    story: >-
+      Chronic kidney disease, stage 4, not on dialysis yet. Her husband wants to donate, but she carries antibodies
+      against his tissue type (B44), and she is highly sensitised, so only a few donors in the pool fit her.
+    donor: {abo: O, sex: M, relation: husband, age_band: 45-54, bmi: 26.8, untyped_loci: []}
+    patient: {abo: B, sex: F, age_band: 45-59}
+    antigens: [A2, A24, B7, B44, DR4, DR15, DQ6, DQ8]
+    antibodies: {B44: 8800, B8: 9100, A1: 8200, B35: 7800, DR7: 5200, DR13: 4800, DQ2: 4100}
+    missing_documents: [relationship_proof]
+    approval_age_days: 25
+    measure: {key: egfr, label: eGFR, unit: "ml/min/1.73m²", better: higher}
+    history: [[168, 26], [140, 25], [112, 23], [84, 22], [56, 21], [28, 21]]
+    future: [19, 18, 17, 16, 15, 14]
+    past_visits:
+      - {days_ago: 140, kind: Nephrology review, note: CKD stage 4 confirmed; referred to the transplant team}
+      - {days_ago: 84, kind: Transplant work-up, note: Husband assessed as donor; her antibodies react to his B44, referred to the swap pool}
+      - {days_ago: 28, kind: Nephrology review, note: Stable; diet and blood pressure reviewed}
+
+  rajesh:
+    name: Rajesh Nair
+    age: 56
+    organ: liver
+    pair_id: P-0902
+    hospital: COK
+    story: >-
+      Cirrhosis. His daughter wants to donate part of her liver, but she is small and he is a big man: the part
+      she can give is too small for him (a clash only liver has). It would fit a lighter patient, so they joined the
+      liver swap pool. His MELD score has been creeping up for six months.
+    donor: {abo: O, sex: F, relation: daughter, age_band: 25-34, bmi: 22.1, height_cm: 156, weight_kg: 52, untyped_loci: []}
+    patient: {abo: B, sex: M, age_band: 45-59, height_cm: 180, weight_kg: 100.0, meld: 18,
+              recipient_evaluation: ELIGIBLE, surgical_review: ELIGIBLE}
+    liver: {liver_volume_ml: 1160, left_lobe_ml: 420, right_lobe_ml: 740, right_lobe_ok: true, steatosis: false,
+            volumetry: ct, anatomy_review: ELIGIBLE, donor_evaluation: ELIGIBLE}
+    missing_documents: []
+    approval_age_days: 18
+    measure: {key: meld, label: MELD, unit: points, better: lower}
+    history: [[168, 14], [140, 15], [112, 16], [84, 16], [56, 17], [28, 18]]
+    future: [20, 22, 25, 26, 27, 28]
+    # New families join the pool every week. This one arrives in week 2; the agents' continuous watch notices it.
+    arrivals:
+      2:
+        pair_id: P-0903
+        hospital: MUM
+        organ: liver
+        donor: {abo: B, sex: M, relation: husband, age_band: 35-44, bmi: 25.8, height_cm: 178, weight_kg: 80, untyped_loci: []}
+        patient: {abo: O, sex: F, age_band: 45-59, height_cm: 158, weight_kg: 55.0, meld: 17,
+                  recipient_evaluation: ELIGIBLE, surgical_review: ELIGIBLE}
+        liver: {liver_volume_ml: 1500, left_lobe_ml: 520, right_lobe_ml: 980, right_lobe_ok: true, steatosis: false,
+                volumetry: ct, anatomy_review: ELIGIBLE, donor_evaluation: ELIGIBLE}
+        missing_documents: [id_proof]
+    past_visits:
+      - {days_ago: 150, kind: Hepatology review, note: Listed for living donor evaluation}
+      - {days_ago: 90, kind: Donor work-up, note: Daughter's CT volumetry done; graft too small for him (GRWR 0.74%), referred to the swap pool}
+      - {days_ago: 28, kind: Hepatology review, note: MELD 18; labs every 90 days}
+
+# Stages, from calm to urgent. The health watch picks the most urgent stage whose rule holds.
+# Kidney: lower eGFR is worse. Liver: higher MELD is worse.
+stages:
+  kidney:
+    - {key: stable, label: Stable, rule: "eGFR above 20 and declining by 5 or less per year"}
+    - {key: watch, label: Watch closely, rule: "declining by more than 5 per year (rapid progression)"}
+    - {key: prepare, label: Prepare for transplant, rule: "eGFR 20 or below (pre-emptive transplant window)"}
+    - {key: act, label: Act now, rule: "eGFR below 15, or projected to fall below 15 within 8 weeks"}
+  liver:
+    - {key: stable, label: Stable, rule: "MELD below 15"}
+    - {key: watch, label: Watch closely, rule: "MELD 15 to 18 (labs every 90 days)"}
+    - {key: prepare, label: Prepare for transplant, rule: "MELD 19 to 24 (labs every 30 days)"}
+    - {key: act, label: Act now, rule: "MELD 25 or more (urgent; labs every 7 days)"}
+
+thresholds:
+  kidney:
+    preemptive_egfr: 20       # OPTN Policy 8: kidney waiting time can start at eGFR <= 20
+    failure_egfr: 15          # KDIGO 2012 CKD guideline: G5, kidney failure, eGFR < 15
+    rapid_decline_per_year: 5 # KDIGO 2012: rapid progression, a sustained decline of more than 5 per year
+    act_within_weeks: 8       # program configuration: lead time the scheduler needs to get care ready
+  liver:
+    benefit_meld: 15          # Merion et al. 2005, Am J Transplant: transplant survival benefit from MELD 15
+    prepare_meld: 19          # OPTN Policy 9: MELD 19-24 recertified every 30 days
+    urgent_meld: 25           # OPTN Policy 9: MELD >= 25 recertified every 7 days; india_liver.yaml urgent_meld
+  sources:
+    - "OPTN Policy 8 (Allocation of Kidneys): waiting time from eGFR <= 20"
+    - "KDIGO 2012 Clinical Practice Guideline for CKD: G5 < 15; rapid progression > 5 per year"
+    - "Merion RM et al. 2005, Am J Transplant 5:307: survival benefit of liver transplant from MELD 15"
+    - "OPTN Policy 9 (Allocation of Livers): MELD recertification every 7 days at >= 25, 30 days at 19-24, 90 days at 11-18"
+    - "KDOQI 2019 Vascular Access guideline: plan access early, a fistula needs months to mature"
+
+# Procedural memory: what each agent does when a patient enters a stage. The agents act on their own; nothing waits
+# for a button. People can still see every step (the audit trail) and the authorisation committee still has to file. Loaded into each persona's memory graph
+# as Playbook and Step nodes; the health watch reads them from there.
+playbooks:
+  kidney:
+    watch:
+      - {agent: Scheduler, action: book, what: Nephrology review, in_days: 28, why: Decline is faster than 5 a year}
+      - {agent: Patient liaison, action: message, why: Tell the family what the trend means}
+    prepare:
+      - {agent: Matching agent, action: urgent_search, why: The pre-emptive window is open; look for a swap now}
+      - {agent: Scheduler, action: book, what: Vascular access (fistula) assessment, in_days: 14, why: A fistula needs months to mature (KDOQI 2019)}
+      - {agent: Scheduler, action: book, what: Transplant nephrology review, in_days: 7, why: Review the plan with the transplant team}
+      - {agent: Committee clerk, action: chase_documents, why: Papers must not be what holds a swap up}
+      - {agent: Patient liaison, action: message, why: Tell the family what happens next}
+    act:
+      - {agent: Matching agent, action: urgent_search, why: Kidney failure is close; search 2-way and 3-way swaps}
+      - {agent: Scheduler, action: book, what: Repeat crossmatch blood draw, in_days: 3, why: Ready the moment a swap is found}
+      - {agent: Scheduler, action: book, what: Dialysis planning visit, in_days: 7, why: A safety net if no swap is found in time}
+      - {agent: Committee clerk, action: chase_documents, why: Every missing paper delays surgery}
+      - {agent: Patient liaison, action: message, why: Tell the family plainly}
+  liver:
+    watch:
+      - {agent: Scheduler, action: book, what: MELD labs (every 90 days), in_days: 90, why: OPTN Policy 9 recertification at MELD 11-18}
+      - {agent: Patient liaison, action: message, why: Tell the family what the trend means}
+    prepare:
+      - {agent: Matching agent, action: urgent_search, why: MELD is rising; look for a swap now}
+      - {agent: Scheduler, action: book, what: MELD labs (every 30 days), in_days: 30, why: OPTN Policy 9 recertification at MELD 19-24}
+      - {agent: Scheduler, action: book, what: Hepatology review, in_days: 7, why: Review the plan with the transplant team}
+      - {agent: Committee clerk, action: chase_documents, why: Papers must not be what holds a swap up}
+      - {agent: Patient liaison, action: message, why: Tell the family what happens next}
+    act:
+      - {agent: Matching agent, action: urgent_search, why: MELD 25 or more is urgent; search 2-way and 3-way swaps}
+      - {agent: Scheduler, action: book, what: MELD labs (every 7 days), in_days: 7, why: OPTN Policy 9 recertification at MELD 25 or more}
+      - {agent: Scheduler, action: book, what: Donor work-up (CT volumetry) slot, in_days: 5, why: Ready the moment a swap is found}
+      - {agent: Committee clerk, action: chase_documents, why: Every missing paper delays surgery}
+      - {agent: Patient liaison, action: message, why: Tell the family plainly}

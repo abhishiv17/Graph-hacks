@@ -26,6 +26,7 @@ export function TopNav() {
         <Link href="/" aria-label="KindRed home" className="justify-self-start md:justify-self-center"><Logo size={30} /></Link>
         <div className="flex items-center justify-end gap-8">
           <a href="#results" className="hidden md:inline font-bold hover:text-[#183B32] transition-colors" style={{ color: "#4A5952" }}>Results</a>
+          <Link href="/patients" className="hidden sm:inline font-bold hover:text-[#183B32] transition-colors" style={{ color: "#4A5952" }}>Demo patients</Link>
           <Link href="/pool" className="k-btn k-btn-primary !py-2.5 !px-5 text-sm">Open workspace</Link>
         </div>
       </div>

@@ -8,9 +8,12 @@ services:
       FALKORDB_HOST: falkordb
       FALKORDB_PORT: "6379"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      # Ask KindRed's model: "ollama" (local, free) or "anthropic" (Claude). Empty picks Claude if a key is set.
+      # Ask KindRed's model: "groq", "ollama" (local, free) or "anthropic" (Claude). Empty picks whichever key is set.
       KINDRED_ASK_PROVIDER: ${KINDRED_ASK_PROVIDER:-}
       KINDRED_OLLAMA_MODEL: ${KINDRED_OLLAMA_MODEL:-llama3.1:8b}
+      # Groq (hosted, OpenAI-compatible, fast): set GROQ_API_KEY in .env and KINDRED_ASK_PROVIDER=groq.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      KINDRED_GROQ_MODEL: ${KINDRED_GROQ_MODEL:-openai/gpt-oss-120b}
       # Ollama runs on the host (it can use the host's GPU and memory there); the container reaches it here.
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
     extra_hosts: ["host.docker.internal:host-gateway"]

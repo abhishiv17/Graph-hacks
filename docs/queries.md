@@ -44,6 +44,16 @@ Rules for every query: parameterised (no string building), edge aliases always r
 | Q37 | `remember_answer` | a verified answer → `Question` node `ABOUT` its pairs and loops, with its scope | Ask KindRed memory (the agent's only write) | built |
 | Q38 | `recall` | ids → earlier answers about them, dated, with scope | Ask KindRed `recall`, MCP; filtered to the viewer's hospitals and program | built |
 | Q39 | `recent_questions` | limit → latest answers | Ask screen history (`/api/ask/history`) | built |
+| Q40 | `persona_readings` | pair id, measure → a demo patient's readings, oldest first | Hospital graph. Health watch, journey screen (docs/personas.md) | built |
+| Q41 | `record_reading` | a new reading → `LabResult` on the hospital's pair, unassessed | Hospital graph. "Next week" | built |
+| Q42 | `current_facts` | persona → current `Fact` nodes and the fact each `SUPERSEDES` | Persona memory graph (semantic). Health watch, Ask `patient_memory` | built |
+| Q43 | `findings` | persona → `Finding` nodes, the readings each rests on and the hand-offs it started | Persona memory graph (episodic) | built |
+| Q44 | `playbook` | persona, stage → ordered `Step` nodes | Persona memory graph (procedural). The health watch reads its playbook here | built |
+| Q45 | `remember_finding` | a finding → `Finding` `BASED_ON` `Reading` (mirrored ids), `TRIGGERED` its playbook | Persona memory graph | built |
+| Q46 | `update_fact` | key, value → new current `Fact` that `SUPERSEDES` the old one (no-op if unchanged) | Persona memory graph | built |
+| Q47 | `sessions` | persona → earlier visits, newest first | Persona memory graph. The "since your last look" greeting | built |
+| Q48 | `pair_handoffs` | pair id → `Task` hand-offs `ABOUT` it and the `Agent` each is `ASSIGNED_TO` | Exchange graph: the shared state agents coordinate through | built |
+| Q49 | `appointments` | pair id → past visits and appointments the scheduler held | Hospital graph | built |
 
 Every named query without a write clause runs through `GRAPH.RO_QUERY` (`db.is_read_only`), so FalkorDB refuses a write from it.
 
