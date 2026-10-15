@@ -1,0 +1,90 @@
+# India-first parameters for the synthetic living-donor liver swap pool.
+# Sources are in research/synthetic_data.md section 5 (Ergin, Sönmez and Ünver 2020; BMC Surgery 2019;
+# Medanta; Kute et al. 2025). Values marked "assumption" are ours.
+
+abo:                      # same Indian donor mix as the kidney pool (Agrawal 2014)
+  O: 0.371
+  B: 0.323
+  A: 0.229
+  AB: 0.077
+
+recipient_male_share: 0.80     # about 80% of Indian LDLT recipients are male (PMC7897854)
+donor_female_share: 0.50       # assumption
+relations:                     # assumption: liver donors are mostly spouses and adult children
+  female: {wife: 0.40, daughter: 0.25, sister: 0.15, mother: 0.20}
+  male:   {son: 0.40, brother: 0.30, husband: 0.20, father: 0.10}
+
+height_cm:                     # assumption: Indian adults; replace with NFHS-5 or ICMR values
+  male:   {mean: 165, sd: 7}
+  female: {mean: 153, sd: 6}
+recipient_bmi: {mean: 23, sd: 3}     # Indian LDLT recipients
+donor_bmi: {mean: 25, sd: 4, max: 30}  # donors above BMI 30 are not evaluated
+meld: {mean: 15.5, sd: 6, min: 6, max: 40}
+
+# Standard liver volume (ml) = a * BSA + b, BSA by Mosteller (Ergin et al., Korean formula as an Asian proxy).
+liver_volume: {a: 893.485, b: -439.169}
+left_lobe_share: {mean: 0.35, sd: 0.03, min: 0.28, max: 0.42}   # left lobe 30-40% of the liver
+true_volume_sd: 0.12           # assumption: real volume vs the formula estimate (relative SD)
+
+rules:                         # clinical thresholds (BMC Surgery 2019)
+  grwr_min: 0.8                # graft weight as % of patient weight (graft ml ≈ g)
+  remnant_min: 0.30            # share of the liver the donor keeps
+right_lobe_willing: 0.8        # Ergin's willingness parameter; India does mostly right-lobe adult LDLT
+volumetry_pending_share: 0.30  # assumption: donors whose CT volumetry isn't back, so volume is a formula estimate
+
+failure:
+  workup: 0.08                 # assumption: donor work-up finds a problem (steatosis, vascular anatomy)
+  estimate: 0.05               # assumption: extra risk while the volume is only an estimate
+  estimate_borderline: 0.25    # ... when the estimated graft is within 25% of the size limit
+  borderline_margin: 0.25
+  offer_refusal: 0.15          # same refusal rate as kidney (Ashlagi 2018)
+  too_ill_base: 0.05           # 0.05 + 0.01 x (MELD - 15), capped (research note, assumption)
+  too_ill_per_meld: 0.01
+  too_ill_max: 0.30
+urgent_meld: 25                # priority boost and an urgency note on the link
+
+# Committee file for a liver pair: the CT volumetry report takes the place of the HLA report.
+required_documents: [ct_volumetry_report, blood_group_card, relationship_proof, id_proof, consent]
+
+# Evaluation statuses for the synthetic pool. The platform uses statuses, not clinical measurements, for checks
+# the project has no authoritative numbers for. Shares are assumptions for the demo.
+evaluation:
+  statuses: [ELIGIBLE, REVIEW_REQUIRED, UNKNOWN, INELIGIBLE]
+  anatomy_review:      {ELIGIBLE: 0.80, REVIEW_REQUIRED: 0.12, UNKNOWN: 0.05, INELIGIBLE: 0.03}   # vascular and biliary anatomy
+  donor_evaluation:    {ELIGIBLE: 0.85, REVIEW_REQUIRED: 0.10, UNKNOWN: 0.05}                     # donor liver health
+  recipient_evaluation: {ELIGIBLE: 0.88, REVIEW_REQUIRED: 0.08, UNKNOWN: 0.04}                    # recipient liver-disease work-up
+  surgical_review:     {ELIGIBLE: 0.75, REVIEW_REQUIRED: 0.20, UNKNOWN: 0.05}                     # centre-specific surgical suitability
+
+# Program configuration: how KindRed presents and checks liver exchanges (swapnet/organs/liver.py). Workflow
+# settings for a software demo, not clinical guidance. The size rules above are program configuration taken from
+# the cited literature; they are not a medical authority.
+program:
+  label: Liver
+  title: Living donor liver paired donation
+  exchange_label: Liver exchange
+  story:
+    pairs: [P-0412, P-0433, P-0451]
+    family_pair: P-0451
+  committee_review:
+    - {key: donor_eval, label: "Donor evaluation", kind: status, node: donor, field: donor_evaluation}
+    - {key: recipient_eval, label: "Recipient evaluation", kind: status, node: patient, field: recipient_evaluation}
+    - {key: compatibility, label: "Compatibility evidence on every link", kind: compatibility}
+    - {key: tests, label: "Donor work-up (CT volumetry) passed on every link", kind: link_tests}
+    - {key: anatomy, label: "Anatomical review (vascular and biliary)", kind: status, node: donor, field: anatomy_review}
+    - {key: surgical, label: "Surgical suitability review", kind: status, node: patient, field: surgical_review}
+    - {key: papers, label: "CT volumetry report, identity and relationship papers", kind: documents, documents: [ct_volumetry_report, id_proof, relationship_proof, blood_group_card]}
+    - {key: consent, label: "Consent", kind: documents, documents: [consent]}
+  timeline:                      # assumption: planning offsets for the demo; no authoritative liver timing in the project
+    - {key: offers, label: "Offers accepted by every hospital", days: 2}
+    - {key: workup, label: "Donor work-up and CT volumetry", days: 12}
+    - {key: review, label: "Anatomical and surgical suitability review", days: 19}
+    - {key: committee, label: "Authorisation Committee approval", days: 42}
+    - {key: surgery, label: "Surgery coordination: every operation in the loop at once, several theatres", days: 49}
+    - {key: recovery, label: "Recovery and transplant milestones", days: 91}
+  scenario:
+    id: LPD-SCN-1
+    title: "Graft-size review fails, local repair"
+    initial_state: "3-way liver loop Delhi → Chennai → Kochi; every hospital has accepted its offer. Chennai's donor was matched on a liver volume estimated from height and weight."
+    failure_event: "Synthetic demonstration rule: the donor work-up's CT volumetry measures Chennai's lobe below the program's graft-size rule for the Kochi patient, so that link becomes unavailable."
+    repair_strategy: "Record the failed link and the measured volume, search two steps around the released families, keep the stored 2-way fallback."
+    expected_review_step: "A coordinator approves the new pathway; the surgical suitability review covers it before committee."

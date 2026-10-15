@@ -43,3 +43,33 @@ timing:                     # Ashlagi et al. 2018 "delay" regime, used for multi
   offer_days: 2             # offer stage before both teams accept
   crossmatch_days: 7        # physical crossmatch after acceptance
   match_run_every_days: 7   # weekly match runs (UNOS moved from monthly to weekly)
+
+# Program configuration: how KindRed presents and checks kidney exchanges. These are workflow settings for a
+# software demo (swapnet/organs/kidney.py reads them), not clinical guidance.
+program:
+  label: Kidney
+  title: Kidney paired donation
+  exchange_label: Kidney exchange
+  story:                         # the scripted demo loop and the family whose view the demo opens
+    pairs: [P-0154, P-0211, P-0388]
+    family_pair: P-0154
+  committee_review:              # Authorisation Committee checklist, evaluated per loop (swapnet/programs.py)
+    - {key: identity, label: "Identity and relationship papers", kind: documents, documents: [id_proof, relationship_proof]}
+    - {key: hla, label: "HLA typing report", kind: documents, documents: [hla_report]}
+    - {key: blood_group, label: "Blood group cards", kind: documents, documents: [blood_group_card]}
+    - {key: compatibility, label: "Compatibility evidence on every link", kind: compatibility}
+    - {key: tests, label: "Lab crossmatch negative on every link", kind: link_tests}
+    - {key: consent, label: "Consent", kind: documents, documents: [consent]}
+  timeline:                      # proposed planning steps, days after the match (timing above; Delhi HC 42 days)
+    - {key: offers, label: "Offers accepted by every hospital", days: 2}
+    - {key: tests, label: "Lab crossmatch on every link", days: 9}
+    - {key: committee, label: "Authorisation Committee approval", days: 42}
+    - {key: surgery, label: "Surgery coordination: every operation in the loop at once", days: 49}
+    - {key: recovery, label: "Recovery and follow-up milestones", days: 77}
+  scenario:
+    id: KPD-SCN-1
+    title: "Positive crossmatch, local repair"
+    initial_state: "3-way kidney loop Hyderabad → Bengaluru → Kolkata; every hospital has accepted its offer."
+    failure_event: "The lab crossmatch on Bengaluru → Kolkata is positive: the patient has an antibody against a donor tissue type that was not typed in advance."
+    repair_strategy: "Record the failed link, search two steps around the released families, keep the stored 2-way fallback."
+    expected_review_step: "A coordinator approves the repair, uses the fallback, or holds."

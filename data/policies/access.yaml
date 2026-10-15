@@ -1,0 +1,20 @@
+# Program- and hospital-scoped access for the demo. THERE IS NO AUTHENTICATION in this prototype: the web app (or
+# any caller) names a demo identity in the X-KindRed-User header and the API trusts it. swapnet/access.py is the one
+# place that reads this file, so real authentication can replace the identity source without touching the checks.
+#
+# scope: "all", or {HOSPITAL_CODE: [organs]}. A user sees and acts only on pairs, loops and findings inside scope.
+roles:
+  platform_admin:       {label: Platform admin,        can_approve: true,  can_run_tests: true,  can_simulate: true}
+  hospital_coordinator: {label: Hospital coordinator,  can_approve: true,  can_run_tests: true,  can_simulate: true}
+  transplant_clinician: {label: Transplant clinician,  can_approve: false, can_run_tests: true,  can_simulate: true}
+  committee_reviewer:   {label: Committee reviewer,    can_approve: false, can_run_tests: false, can_simulate: false}
+  read_only_reviewer:   {label: Read-only reviewer,    can_approve: false, can_run_tests: false, can_simulate: false}
+  simulation_user:      {label: Simulation user,       can_approve: false, can_run_tests: false, can_simulate: true}
+
+default_user: meera
+users:
+  meera:      {name: Meera Iyer,     role: platform_admin,       scope: all}                       # exchange coordinator (demo default)
+  hyd_coord:  {name: Arjun Rao,      role: hospital_coordinator, scope: {HYD: [kidney, liver]}}
+  che_liver:  {name: Kavya Raman,    role: transplant_clinician, scope: {CHE: [liver]}}
+  committee:  {name: S. Menon,       role: committee_reviewer,   scope: all}
+  observer:   {name: Read-only demo, role: read_only_reviewer,   scope: all}

@@ -3,3 +3,10 @@
 # lab test, the repair search, the ranking) is computed live, not scripted.
 seed: 3
 background_pairs: 150
+
+# Pools for other organs (swapnet/organs). They load after the scripted kidney families, so the
+# kidney story above is unchanged. Liver arrivals are about a tenth of kidney's (research note §3).
+# The liver seed was chosen so this week's plan contains the scripted Delhi -> Chennai -> Kochi loop
+# (scenario.scripted_liver); its failed work-up and the repair are computed live.
+organs:
+  liver: {seed: 8, background_pairs: 40}

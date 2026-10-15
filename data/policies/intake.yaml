@@ -14,6 +14,7 @@ matching:
   priority_bonus:
     blood_o_patient: 0.15
     high_cpra: 0.25               # cPRA > 85
+    urgent_meld: 0.25             # liver patient with MELD >= urgent_meld (india_liver.yaml)
     failed_before: 0.20
 
 playbooks:

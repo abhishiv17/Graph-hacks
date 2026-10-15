@@ -1,16 +1,18 @@
 # Synthetic hospitals (names are cities only; no real institution is implied).
+# `organs`: the swap programmes each hospital runs (swapnet/organs). Liver swaps happen at far fewer
+# centres than kidney swaps in India (7 vs 65 in Kute et al. 2025).
 hospitals:
-  - {code: HYD, city: Hyderabad, lat: 17.39, lon: 78.49, lab: HYD-LAB}
-  - {code: BLR, city: Bengaluru, lat: 12.97, lon: 77.59, lab: BLR-LAB}
-  - {code: KOL, city: Kolkata,   lat: 22.57, lon: 88.36, lab: KOL-LAB}
-  - {code: CHE, city: Chennai,   lat: 13.08, lon: 80.27, lab: CHE-LAB}
-  - {code: DEL, city: Delhi,     lat: 28.61, lon: 77.21, lab: DEL-LAB}
-  - {code: MUM, city: Mumbai,    lat: 19.08, lon: 72.88, lab: MUM-LAB}
-  - {code: AMD, city: Ahmedabad, lat: 23.02, lon: 72.57, lab: AMD-LAB}
-  - {code: PUN, city: Pune,      lat: 18.52, lon: 73.86, lab: PUN-LAB}
-  - {code: JAI, city: Jaipur,    lat: 26.91, lon: 75.79, lab: JAI-LAB}
-  - {code: LKO, city: Lucknow,   lat: 26.85, lon: 80.95, lab: LKO-LAB}
-  - {code: COK, city: Kochi,     lat: 9.93,  lon: 76.27, lab: COK-LAB}
+  - {code: HYD, city: Hyderabad, lat: 17.39, lon: 78.49, lab: HYD-LAB, organs: [kidney, liver]}
+  - {code: BLR, city: Bengaluru, lat: 12.97, lon: 77.59, lab: BLR-LAB, organs: [kidney, liver]}
+  - {code: KOL, city: Kolkata,   lat: 22.57, lon: 88.36, lab: KOL-LAB, organs: [kidney]}
+  - {code: CHE, city: Chennai,   lat: 13.08, lon: 80.27, lab: CHE-LAB, organs: [kidney, liver]}
+  - {code: DEL, city: Delhi,     lat: 28.61, lon: 77.21, lab: DEL-LAB, organs: [kidney, liver]}
+  - {code: MUM, city: Mumbai,    lat: 19.08, lon: 72.88, lab: MUM-LAB, organs: [kidney, liver]}
+  - {code: AMD, city: Ahmedabad, lat: 23.02, lon: 72.57, lab: AMD-LAB, organs: [kidney]}
+  - {code: PUN, city: Pune,      lat: 18.52, lon: 73.86, lab: PUN-LAB, organs: [kidney]}
+  - {code: JAI, city: Jaipur,    lat: 26.91, lon: 75.79, lab: JAI-LAB, organs: [kidney]}
+  - {code: LKO, city: Lucknow,   lat: 26.85, lon: 80.95, lab: LKO-LAB, organs: [kidney]}
+  - {code: COK, city: Kochi,     lat: 9.93,  lon: 76.27, lab: COK-LAB, organs: [kidney, liver]}
 
 near_relatives: [spouse, wife, husband, mother, father, son, daughter, brother, sister,
                  grandmother, grandfather, grandson, granddaughter]
