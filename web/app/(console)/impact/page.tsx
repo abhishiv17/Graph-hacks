@@ -3,6 +3,7 @@ import { useState } from "react";
 import { PageIntro, Term } from "@/components/app/Help";
 import { EmptyState, ErrorState, Loading, Section } from "@/components/app/ui";
 import { useResource } from "@/lib/data/source";
+import { useProgram } from "@/lib/program";
 
 type CI = [number, number, number];
 type Policy = { title: string; subtitle: string; transplants: CI; o_matched_pct: CI; hs_matched_pct: CI; median_weeks: CI; tests_wasted: CI; loops_repaired: CI; arrived: CI };
@@ -12,10 +13,14 @@ const OURS = "swapnet";
 
 export default function ImpactPage() {
   const sim = useResource<Sim>("sim", (a) => a.sim());
+  const { organ } = useProgram();
   const d = sim.data;
   return (
     <div>
-      <h1 className="font-display text-[2.1rem] leading-none mb-4" style={{ color: "var(--ink-strong)" }}>Impact</h1>
+      <h1 className="font-display text-[2.1rem] leading-none mb-4" style={{ color: "var(--ink-strong)" }}>Impact · kidney program</h1>
+      <div className="mb-4 rounded-[10px] border px-4 py-3 text-sm" role="note" style={{ borderColor: organ === "liver" ? "#ecd9b4" : "var(--line)", background: organ === "liver" ? "var(--warn-soft)" : "var(--surface)" }}>
+        This simulated year models the <strong>kidney</strong> program only (<code>data/generated/sim_results.json</code>). There is no simulated year for the liver program in this build{organ === "liver" ? ", so nothing on this page describes liver exchanges" : ""}.
+      </div>
       <PageIntro id="impact"
         what={<>What would a shared, failure-aware pool achieve over a year? We can&rsquo;t use real patients, so the simulator replays a <strong>synthetic year</strong> day by day: about 540 families arrive, some leave, lab results take 9 days, and some tests fail at published rates. The same year is run under four policies, 20 times each. All numbers are synthetic and measured by us.</>}
         steps={[

@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import CypherPanel from "@/components/CypherPanel";
 import ExchangeGraph, { GraphLegend, type GEdge, type GNode } from "@/components/app/ExchangeGraph";
 import { EmptyState, ErrorState, Loading, PageHeader, Section, StatusPill, Tag } from "@/components/app/ui";
+import { organOf } from "@/lib/organs";
+import { useProgram } from "@/lib/program";
+import type { Checklist, Evidence, Timeline } from "@/lib/data/types";
 import { PageIntro, Term } from "@/components/app/Help";
 import { Icon } from "@/components/app/icons";
 import { useEvents, useLoop, usePool } from "@/lib/data/hooks";
@@ -20,6 +23,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
   const ws = useWorkspace();
   const act = useAction();
   const { mode } = useData();
+  const program = useProgram();
   const router = useRouter();
   const [edge, setEdge] = useState<string | null>(null);
   const [showRepair, setShowRepair] = useState(true);
@@ -34,11 +38,12 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
   const graph = useMemo(() => {
     if (!data) return null;
     const fams: any[] = data.families;
+    const org = organOf(data.loop);
     const nodes: GNode[] = fams.map((f) => ({ id: f.pair_id, title: f.city, sub: f.pair_id, state: openRepair && prop.released.includes(f.pair_id) ? "released" : "active" }));
     const edges: GEdge[] = (data.links as any[]).map((l) => {
       const wf = (data.workflow as any[]).find((w) => w.from_pair === l.from_pair && w.to_pair === l.to_pair);
-      const state: GEdge["state"] = l.status === "failed" ? "failed" : wf?.result === "negative" ? "viable" : "pending";
-      return { from: l.from_pair, to: l.to_pair, state, key: `${l.from_pair}>${l.to_pair}`, label: l.status === "failed" ? `${wf?.antibody ?? "test"} positive` : `p ${l.p_success}` };
+      const state: GEdge["state"] = l.status === "failed" ? "failed" : wf?.result === "negative" ? "viable" : wf?.result === "cancelled" ? "inactive" : "pending";
+      return { from: l.from_pair, to: l.to_pair, state, key: `${l.from_pair}>${l.to_pair}`, label: l.status === "failed" ? `${wf?.antibody ?? "test"} ${org.outcome.positive}` : `p ${l.p_success}` };
     });
     if (openRepair && showRepair && prop.recommended) {
       const rec = prop.recommended;
@@ -63,6 +68,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
   if (!data) return <div><PageHeader title={id} description="Loading the exchange…" /><Loading rows={6} /></div>;
 
   const loop = data.loop;
+  const o = organOf(loop);
   const fams: any[] = data.families;
   const failed = (data.links as any[]).find((l) => l.status === "failed");
   const pairIds = new Set(fams.map((f) => f.pair_id));
@@ -85,19 +91,27 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
 
   return (
     <div>
-      <PageHeader title={`Swap ${id} · ${loop.kind}`}
-        description={<>{route(fams.map((f) => f.city))} · <Term k="chance">chance every link holds</Term> {pct(loop.p_success)} · <Term k="expected">expected</Term> {loop.expected_tx} of {fams.length} transplants
+      {program.organ && program.organ !== o.name && (
+        <Notice tone="bad" icon="alert">
+          {id} is a <strong>{o.exchange.toLowerCase()}</strong>, but the workspace is showing the {program.view?.label.toLowerCase()} program.{" "}
+          <button className="font-semibold underline" onClick={() => program.setProgram(o.name)}>Switch to the {o.label.toLowerCase()} program</button>
+        </Notice>
+      )}
+      <PageHeader title={`${data.exchange_label ?? o.exchange} · ${id} · ${loop.kind}`}
+        description={<>{route(fams.map((f) => f.city))} · {loop.status === "broken"
+          ? <>a link failed, so this loop can&rsquo;t go ahead as planned</>
+          : <><Term k="chance">chance every link holds</Term> {pct(loop.p_success)} · <Term k="expected">expected</Term> {loop.expected_tx} of {fams.length} transplants</>}
           {data.replaces && <> · replaces <Link className="underline" href={`/swaps/${data.replaces}`}>{data.replaces}</Link></>}</>}
         actions={<>
           <StatusPill status={loop.status} repairReady={repairReady} />
           {loop.status === "testing" && (
             <button className="btn btn-primary" disabled={!!act.busy} onClick={() => act.run("lab", (a) => a.runLab(id))}>
-              {act.busy === "lab" ? "Running lab tests…" : "Run lab tests"}
+              {act.busy === "lab" ? o.running : o.run}
             </button>
           )}
         </>} />
-      <PageIntro id="swap" what={<>One swap, start to finish. Every hospital has accepted its offer; now each donation needs a <Term k="crossmatch">lab crossmatch</Term>. <strong>Run lab tests</strong> sends them to the (simulated) labs. If one comes back positive, that donation can&rsquo;t happen: KindRed records the failure in the graph, searches nearby for a replacement family, keeps a <Term k="fallback">2-way fallback</Term> ready, and waits for a person to approve.</>}
-        steps={[<>Click an arrow in the swap graph to see why that donation was chosen.</>, <>Offers and lab tests shows each donation&rsquo;s progress.</>, <>Committee papers shows which family&rsquo;s paperwork is holding the swap.</>]} />
+      <PageIntro id="swap" what={<>One swap, start to finish. Every hospital has accepted its offer; now each donation needs a {o.name === "liver" ? <Term k="workup">donor work-up</Term> : <Term k="crossmatch">lab crossmatch</Term>}. <strong>{o.run}</strong> sends them to the (simulated) {o.name === "liver" ? "donor hospitals" : "labs"}. If one fails, that donation can&rsquo;t happen: KindRed records the failure in the graph, searches nearby for a replacement family, keeps a <Term k="fallback">2-way fallback</Term> ready, and waits for a person to approve.</>}
+        steps={[<>Click an arrow in the swap graph to see why that donation was chosen.</>, <>Offers and {o.tests.toLowerCase()} shows each donation&rsquo;s progress.</>, <>Committee papers shows which family&rsquo;s paperwork is holding the swap.</>]} />
       {act.error && <div className="mb-4"><ErrorState error={new Error(act.error)} what="that action" /></div>}
 
       {data.replaced_by && (
@@ -133,21 +147,21 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
             <div className="panel p-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-semibold" style={{ color: "var(--ink-strong)" }}>{sel.from_city} donor ({sel.from_pair}) → {sel.to_city} patient ({sel.to_pair})</p>
-                {sel.status === "failed" ? <Tag tone="bad">Failed</Tag> : selWf?.result === "negative" ? <Tag tone="ok">Lab negative</Tag> : <Tag tone="warn">Test pending</Tag>}
+                {sel.status === "failed" ? <Tag tone="bad">Failed</Tag> : selWf?.result === "negative" ? <Tag tone="ok">{o.passed}</Tag> : <Tag tone="warn">Test pending</Tag>}
               </div>
               <div>
                 <p className="label mb-1">Recorded facts</p>
                 <ul className="text-sm list-disc pl-5 space-y-0.5">
                   <li>Donor blood group {sel.donor_abo} ({sel.donor_relation}); patient blood group {sel.patient_abo}</li>
-                  {(sel.reasons as string[]).filter((r) => !/virtual/.test(r)).map((r) => <li key={r}>{r}</li>)}
-                  {selWf?.test && <li>Lab crossmatch {selWf.result === "pending" ? `requested, due ${fmtDate(selWf.due)}` : selWf.result}{selWf.antibody ? ` (${selWf.antibody})` : ""}</li>}
+                  {(sel.reasons as string[]).filter((r) => !ESTIMATE.test(r)).map((r) => <li key={r}>{r}</li>)}
+                  {selWf?.test && <li>{o.test[0].toUpperCase() + o.test.slice(1)} {selWf.result === "pending" ? `requested, due ${fmtDate(selWf.due)}` : selWf.result === "cancelled" ? "not sent: the loop broke first" : o.outcome[selWf.result as "negative" | "positive"] ?? selWf.result}{selWf.antibody ? ` (${selWf.antibody})` : ""}</li>}
                   {sel.failed_detail && <li style={{ color: "var(--bad)" }}>{sel.failed_detail}</li>}
                 </ul>
               </div>
               <div>
                 <p className="label mb-1">Model estimates</p>
                 <ul className="text-sm list-disc pl-5 space-y-0.5">
-                  {(sel.reasons as string[]).filter((r) => /virtual/.test(r)).map((r) => <li key={r}>{r}</li>)}
+                  {(sel.reasons as string[]).filter((r) => ESTIMATE.test(r)).map((r) => <li key={r}>{r}</li>)}
                   <li>Chance this link holds: {pct(sel.p_success)}, estimated from past failures</li>
                 </ul>
               </div>
@@ -160,6 +174,16 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
         </Section>
       </div>
 
+      {data.evidence && (
+        <div className="mt-10 grid xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-8">
+          <EvidencePanel ev={data.evidence} />
+          <div className="space-y-8">
+            {data.checklist && <ChecklistPanel c={data.checklist} label={o.label} />}
+            {data.timeline && <TimelinePanel t={data.timeline} />}
+          </div>
+        </div>
+      )}
+
       <div className="mt-10 grid xl:grid-cols-2 gap-8">
         <Section title="Families">
           <div className="panel overflow-x-auto">
@@ -169,8 +193,8 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
                 {fams.map((f, i) => (
                   <tr key={f.pair_id}>
                     <td><Link className="font-semibold hover:underline" href={`/case/${f.pair_id}`}>{f.pair_id}</Link><span className="block text-xs muted">{f.city}</span></td>
-                    <td className="text-sm">{f.donor_relation}, {f.donor_abo}<span className="block text-xs muted">own clash: {f.own_clash}</span></td>
-                    <td className="text-sm">{f.patient_abo}, cPRA {f.cpra}%{f.failed_count ? <span className="block text-xs" style={{ color: "var(--bad)" }}>{f.failed_count} earlier failed link(s)</span> : null}</td>
+                    <td className="text-sm">{f.donor_relation}, {f.donor_abo}{f.liver && <span className="block text-xs muted">liver {f.liver.liver_volume_ml} ml ({f.liver.volumetry === "estimate" ? "estimated, CT pending" : "CT"})</span>}<span className="block text-xs muted">own clash: {f.own_clash}</span></td>
+                    <td className="text-sm">{f.patient_abo}, {o.patient(f)}{f.failed_count ? <span className="block text-xs" style={{ color: "var(--bad)" }}>{f.failed_count} earlier failed link(s)</span> : null}</td>
                     <td className="text-sm">{fams[(i + 1) % fams.length].city}</td>
                   </tr>
                 ))}
@@ -179,16 +203,16 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
           </div>
         </Section>
 
-        <Section title="Offers and lab tests">
+        <Section title={`Offers and ${o.tests.toLowerCase()}`}>
           <div className="panel overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Link</th><th>Offers</th><th>Lab crossmatch</th></tr></thead>
+              <thead><tr><th>Link</th><th>Offers</th><th>{o.test}</th></tr></thead>
               <tbody>
                 {(data.workflow as any[]).map((w) => (
                   <tr key={w.link}>
                     <td className="text-sm">{w.link}</td>
                     <td className="text-sm">{w.offered ? `${w.accepts}/2 accepted${w.holds ? `, ${w.holds} on hold` : ""}` : "not sent"}</td>
-                    <td>{!w.test ? <span className="muted">–</span> : w.result === "pending" ? <Tag tone="warn">Requested</Tag> : w.result === "positive" ? <Tag tone="bad">Positive ({w.antibody})</Tag> : <Tag tone="ok">Negative</Tag>}</td>
+                    <td>{!w.test ? <span className="muted">–</span> : w.result === "pending" ? <Tag tone="warn">Requested</Tag> : w.result === "cancelled" ? <Tag tone="neutral" title="Another link failed first, so this test was never sent">Not needed</Tag> : w.result === "positive" ? <Tag tone="bad">{o.failed} ({w.antibody})</Tag> : <Tag tone="ok">{o.outcome.negative[0].toUpperCase() + o.outcome.negative.slice(1)}</Tag>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -234,6 +258,119 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
     </div>
   );
 }
+
+const APPROVAL_TONE: Record<string, "ok" | "warn" | "bad" | "neutral"> = { APPROVED: "ok", PENDING: "warn", DECLINED: "bad", NOT_APPLICABLE: "neutral" };
+
+/** Every recommendation, traceable: the facts on its graph edge, the constraints it satisfies, what a person should
+ *  look at, its test, and where it stands at the human review step. Nothing here is written by a language model. */
+function EvidencePanel({ ev }: { ev: Evidence }) {
+  const [rules, setRules] = useState(false);
+  return (
+    <Section title="Evidence" description={`${ev.exchange_label}: what each recommendation rests on. ${ev.organ_isolated ? "Every pair and link is in the " + ev.organ + " program." : "Warning: this loop mixes programs."}`}>
+      <div className="space-y-3">
+        {ev.proposal && (
+          <div className="rounded-[10px] border-2 p-4" style={{ borderColor: "var(--forest-mid)", background: "var(--surface)" }}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>{ev.proposal.recommendation_id} · repair {ev.proposal.route}</p>
+              <Tag tone="warn">Human approval {ev.proposal.human_approval.status.toLowerCase()}</Tag>
+            </div>
+            <ul className="mt-2 text-sm list-disc pl-5 space-y-0.5">{ev.proposal.facts.map((f) => <li key={f}>{f}</li>)}</ul>
+          </div>
+        )}
+        {ev.links.map((l) => (
+          <div key={l.recommendation_id} className="panel p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold tnum" style={{ color: "var(--ink-strong)" }}>{l.recommendation_id} · {l.candidate_edge}</p>
+              <span className="flex flex-wrap gap-1.5">
+                {l.failure ? <Tag tone="bad">Failed: {l.failure.cause.replace(/_/g, " ")}</Tag> : null}
+                <Tag tone={APPROVAL_TONE[l.human_approval.status] ?? "neutral"} title={l.human_approval.note}>{l.human_approval.step}: {l.human_approval.status.toLowerCase().replace("_", " ")}</Tag>
+              </span>
+            </div>
+            {l.facts.length > 0 && (
+              <div className="mt-2">
+                <p className="label mb-1">Facts on the graph edge</p>
+                <ul className="text-sm list-disc pl-5 space-y-0.5">{l.facts.map((f) => <li key={f}>{f}</li>)}</ul>
+              </div>
+            )}
+            {l.failure && <p className="mt-2 text-sm" style={{ color: "var(--bad)" }}>{l.failure.detail}</p>}
+            <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Constraints satisfied">
+              {l.constraints_satisfied.map((c) => <Tag key={c} tone="ok">{c.toLowerCase().replace(/_/g, " ")}</Tag>)}
+            </div>
+            {l.flags.length > 0 && <ul className="mt-2 text-xs space-y-0.5" style={{ color: "var(--warn)" }}>{l.flags.map((f) => <li key={f}>⚑ {f.split(": ").slice(1).join(": ") || f}</li>)}</ul>}
+            <p className="mt-2 text-xs muted">{l.test.name}: {l.test.result}{l.test.finding ? ` (${l.test.finding})` : ""}{l.p_success != null ? ` · model estimate ${Math.round(l.p_success * 100)}% likely to hold` : ""}</p>
+          </div>
+        ))}
+        <button className="text-sm font-medium underline" style={{ color: "var(--forest)" }} onClick={() => setRules((r) => !r)} aria-expanded={rules}>
+          {rules ? "Hide" : "Show"} the rules this program applies
+        </button>
+        {rules && (
+          <ul className="panel divide-y">
+            {ev.rules.map((r) => (
+              <li key={r.code} className="px-4 py-2.5 text-sm">
+                <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{r.code.toLowerCase().replace(/_/g, " ")}</span>: {r.text}
+                <span className="block text-xs muted">Source: {r.source}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs muted">{ev.source}</p>
+      </div>
+    </Section>
+  );
+}
+
+/** The program's committee checklist for this swap. Kidney and liver check different things. */
+function ChecklistPanel({ c, label }: { c: Checklist; label: string }) {
+  return (
+    <Section title="Committee readiness" description={`${label} program checklist (program configuration).`}>
+      <div className="panel p-4">
+        <div className="flex items-center gap-3">
+          <div className="h-2 flex-1 rounded-full" style={{ background: "var(--surface-soft)" }} role="progressbar" aria-valuenow={c.readiness_pct} aria-valuemin={0} aria-valuemax={100} aria-label="Readiness">
+            <div className="h-full rounded-full" style={{ width: `${c.readiness_pct}%`, background: "var(--forest-mid)" }} />
+          </div>
+          <span className="text-sm font-semibold tnum" style={{ color: "var(--ink-strong)" }}>{c.readiness_pct}%</span>
+        </div>
+        <ul className="mt-3 space-y-2">
+          {c.items.map((i) => (
+            <li key={i.key} className="flex gap-2 text-sm">
+              <span className="mt-0.5 shrink-0" style={{ color: i.done ? "var(--ok)" : "var(--warn)" }}><Icon name={i.done ? "check" : "alert"} size={15} /></span>
+              <span>
+                <span style={{ color: "var(--ink-strong)" }}>{i.label}</span>
+                {!i.done && i.open.length > 0 && <span className="block text-xs muted">{i.open.slice(0, 3).join(" · ")}{i.open.length > 3 ? ` · +${i.open.length - 3} more` : ""}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Section>
+  );
+}
+
+/** Proposed planning steps from the program configuration. Synthetic dates; nothing is scheduled. */
+function TimelinePanel({ t }: { t: Timeline }) {
+  const DOTC: Record<string, string> = { done: "var(--forest-mid)", current: "var(--mint)", upcoming: "var(--line-strong)", paused: "var(--bad-mark)" };
+  return (
+    <Section title="Proposed timeline" description={t.note}>
+      <ol className="panel p-4 space-y-3">
+        {t.steps.map((s) => (
+          <li key={s.key} className="flex items-start gap-3 text-sm">
+            <span className="mt-1 h-3 w-3 rounded-full shrink-0" style={{ background: DOTC[s.state], boxShadow: s.state === "current" ? "0 0 0 4px var(--sage)" : undefined }} aria-hidden="true" />
+            <span className="flex-1">
+              <span className={s.state === "upcoming" ? "muted" : "font-semibold"} style={{ color: s.state === "upcoming" ? undefined : "var(--ink-strong)" }}>{s.label}</span>
+              <span className="sr-only"> ({s.state})</span>
+            </span>
+            <span className="text-xs muted tnum whitespace-nowrap">proposed {fmtDate(s.proposed_date)}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2"><Tag tone="sim">Synthetic proposed dates</Tag></p>
+    </Section>
+  );
+}
+
+// Reasons that are the model's estimate rather than a recorded fact: the virtual crossmatch (kidney)
+// or a liver volume estimated from height and weight.
+const ESTIMATE = /virtual|estimated/;
 
 function Notice({ tone, icon, children }: { tone: "ok" | "bad"; icon: string; children: React.ReactNode }) {
   return (
@@ -285,6 +422,8 @@ function RepairReview({ prop, busy, offline, onApprove, onDecline }: {
   const [reason, setReason] = useState("");
   const [declining, setDeclining] = useState(false);
   const rec = prop.recommended;
+  const fbPairs: string[] = prop.fallback?.pairs ?? [];
+  const recIsFallback = !!rec && rec.pairs.length === fbPairs.length && fbPairs.every((p) => rec.pairs.includes(p));
   return (
     <section className="mt-4 rounded-[10px] border-2 p-5" style={{ borderColor: declined ? "var(--line-strong)" : "var(--forest-mid)", background: "var(--surface)" }} aria-labelledby="repair-h">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -308,11 +447,12 @@ function RepairReview({ prop, busy, offline, onApprove, onDecline }: {
                 <p className="label">Recommended</p>
                 <p className="text-lg font-semibold mt-1" style={{ color: "var(--forest)" }}>{rec.route}</p>
                 <p className="text-sm tnum">Expected {rec.expected} of {rec.size} transplants · every link holds {pct(rec.p_all)}{rec.has_fallback ? " · keeps a fallback" : ""}</p>
+                {recIsFallback && <p className="text-sm mt-1">This is the stored two-way fallback ({prop.fallback.loop_id}), so it is ready without a new search.</p>}
                 <p className="label mt-3 mb-1">Why (from the graph)</p>
                 <ul className="text-sm list-disc pl-5 space-y-0.5">{(prop.why ?? []).map((w: string) => <li key={w}>{w}</li>)}</ul>
               </div>
               <div className="space-y-3">
-                {prop.fallback && (
+                {prop.fallback && !recIsFallback && (
                   <div className="rounded-lg border p-3" style={{ borderColor: "var(--line)" }}>
                     <p className="text-sm font-semibold">Stored two-way fallback ({prop.fallback.loop_id})</p>
                     <p className="text-xs muted">Expected {prop.fallback.expected_tx} of 2 · ready now, no new search</p>

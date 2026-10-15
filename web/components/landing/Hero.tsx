@@ -106,16 +106,27 @@ export default function Hero() {
     <section ref={root} className="relative pt-28 sm:pt-32">
       <div className="relative z-10 mx-auto max-w-4xl px-4 text-center">
         <h1 className="hero-title gsap-reveal k-serif text-[2.5rem] leading-[1.06] sm:text-[3.6rem] lg:text-[4.4rem]" style={{ color: "var(--k-ink)" }}>
-          A donor who doesn&rsquo;t match can still make a match possible.
+          When a donor can&rsquo;t match their intended recipient, KindRed finds another possibility.
         </h1>
         <p className="hero-sub gsap-reveal k-body mx-auto mt-7 max-w-2xl text-lg sm:text-xl leading-relaxed">
-          KindRed connects donor–recipient pairs across hospitals, helps teams explore possible exchange cycles,
-          and supports coordination when a planned exchange changes.
+          KindRed connects living donor–recipient pairs across transplant programs, helping teams discover exchange
+          possibilities, coordinate review, and recover when a proposed pathway changes.
         </p>
         <div className="hero-cta gsap-reveal mt-9 flex flex-wrap justify-center gap-3">
           <Link href="/pool" className="k-btn k-btn-primary">Open the workspace</Link>
           <a href="#how" className="k-btn k-btn-line">How a swap works</a>
         </div>
+        <ul className="hero-cta gsap-reveal mt-7 flex flex-wrap justify-center gap-3" aria-label="Programs on the platform">
+          {[["Kidney", "#2C5A4B", "#DCE9DE"], ["Liver", "#9A6A2C", "#F3E6D2"]].map(([k, c, bg]) => (
+            <li key={k}>
+              <a href="#programs" className="inline-flex items-center gap-2.5 rounded-full px-4 py-2 text-left" style={{ background: bg }}>
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: c }} aria-hidden="true" />
+                <span className="text-sm font-extrabold uppercase tracking-[0.12em]" style={{ color: c }}>{k}</span>
+                <span className="text-sm font-semibold" style={{ color: "#34433D" }}>Paired donation</span>
+              </a>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <div className="relative z-10 mt-9 px-4 text-center" aria-live="off">
@@ -131,12 +142,17 @@ export default function Hero() {
 
       <div className="hero-scene gsap-reveal relative overflow-hidden -mt-2 sm:-mt-14">
         <svg viewBox="0 185 1440 455" preserveAspectRatio="xMidYMax slice" className="block h-auto max-w-none w-[150%] -ml-[25%] sm:w-full sm:ml-0"
-             role="img" aria-label="An illustrated landscape with family homes in Hyderabad, Bengaluru and Kolkata tied together by a ribbon. The ribbon between Bengaluru and Kolkata tears when a lab test fails, and a new ribbon ties Bengaluru to Chennai and Chennai back to Hyderabad.">
+             role="img" aria-label="An example from the kidney program: an illustrated landscape with family homes in Hyderabad, Bengaluru and Kolkata tied together by a ribbon. The ribbon between Bengaluru and Kolkata tears when a lab test fails, and a new ribbon ties Bengaluru to Chennai and Chennai back to Hyderabad.">
           <circle cx="1150" cy="380" r="200" fill="url(#k-sun)" />
           {STARS.map(([x, y, r], i) => <g key={i} className="k-star" transform={`translate(${x} ${y})`}><Sparkle r={r} fill="#B9D3BF" /></g>)}
           <Cloud className="k-cloud" x={230} y={260} s={0.95} fill="#EAF1E8" />
           <Cloud className="k-cloud" x={1270} y={200} s={0.8} fill="#F2EBDF" />
           <Cloud className="k-cloud" x={760} y={175} s={0.62} fill="#F1F5EE" />
+          <g transform="translate(110 222)">
+            <rect x="0" y="-19" width="218" height="30" rx="15" fill="#F7F6F0" opacity="0.92" />
+            <circle cx="18" cy="-4" r="5" fill="#2C5A4B" />
+            <text x="31" y="1" fontSize="14" fontWeight="800" letterSpacing="1.6" fill="#183B32" style={{ fontFamily: "var(--font-sans)" }}>KIDNEY PROGRAM · EXAMPLE</text>
+          </g>
 
           <path className="hill" d={brushTop(1440, 700, 388, 30, 2)} fill="#DCE9DE" />
           <path className="hill" d={brushTop(1440, 700, 452, 26, 5)} fill="#B9D3BF" />

@@ -53,5 +53,11 @@ export function createLiveApi(): Api {
     decline: (task, reason) => post(`/api/tasks/${encodeURIComponent(task)}/decline`, { reason }),
     agents: () => get("/api/agents"),
     sweep: () => post("/api/agents/sweep"),
+    me: () => get("/api/me"),
+    programs: () => get("/api/programs"),
+    pairs: (organ) => get(`/api/pairs${organ ? `?organ=${organ}` : ""}`),
+    integrity: (organ) => get(`/api/integrity${organ ? `?organ=${organ}` : ""}`),
+    simulations: () => get("/api/simulations"),
+    audit: (organ) => get(`/api/audit${organ ? `?organ=${organ}` : ""}`),
   };
 }

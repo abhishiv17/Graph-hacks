@@ -2,7 +2,7 @@
 // (lib/demo/snapshot.json, captured by running the demo story against FalkorDB), so every ID, link
 // and reason matches what the live system produced. Actions move through the recorded stages;
 // nothing new is computed and nothing leaves the browser.
-import type { Api } from "./types";
+import type { Api, OrganKey } from "./types";
 
 export type Stage = "loaded" | "chennai" | "broken" | "repaired";
 const ORDER: Stage[] = ["loaded", "chennai", "broken", "repaired"];
@@ -32,6 +32,12 @@ function readDecline(): { reason: string; at: number } | null {
   try { const v = localStorage.getItem(DECLINE_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
 }
 const atLeast = (s: Stage) => ORDER.indexOf(readStage()) >= ORDER.indexOf(s);
+// The liver story is recorded separately (its donor work-ups), so it moves on its own: before -> broken.
+const LIVER_KEY = "kindred.offline.liver";
+function liverBroken(): boolean {
+  try { return localStorage.getItem(LIVER_KEY) === "broken"; } catch { return false; }
+}
+const byOrgan = <T extends { organ?: string | null }>(rows: T[], organ?: OrganKey | null) => (organ ? rows.filter((r) => r.organ === organ) : rows);
 
 class NotFound extends Error {
   status = 404;
@@ -47,6 +53,7 @@ export function createOfflineApi(): Api {
     async loop(id) {
       const s = await load();
       const stage = readStage();
+      if (s.liver_focus_loop && id === s.liver_focus_loop && liverBroken()) return s.liver_loop_broken;
       if (id === s.focus_loop) {
         if (stage === "broken") {
           const d = readDecline();
@@ -90,11 +97,15 @@ export function createOfflineApi(): Api {
       if (!h) throw new NotFound(`No hospital ${code}`);
       return h;
     },
-    async reset() { writeStage("loaded"); return { ok: true, offline: true }; },
+    async reset() { writeStage("loaded"); try { localStorage.removeItem(LIVER_KEY); } catch { /* storage blocked */ } return { ok: true, offline: true }; },
     async addChennai() { if (!atLeast("chennai")) writeStage("chennai"); return { ok: true, offline: true }; },
     async runPlan() { return { ok: true, offline: true, note: "The offline snapshot keeps the recorded plan." }; },
     async runLab(id) {
       const s = await load();
+      if (s.liver_focus_loop && id === s.liver_focus_loop) {
+        try { localStorage.setItem(LIVER_KEY, "broken"); } catch { /* storage blocked */ }
+        return s.liver_lab_result;
+      }
       if (id === s.focus_loop && !atLeast("broken")) writeStage("broken");
       return id === s.focus_loop ? s.lab_result : { results: [], offline: true, note: "Only the recorded loop has lab results offline." };
     },
@@ -107,6 +118,26 @@ export function createOfflineApi(): Api {
     },
     async agents() { return { enabled: false, interval_s: 0, sweeps: 0, last_at: null, last_actions: [], running: false, offline: true }; },
     async sweep() { return { enabled: false, interval_s: 0, sweeps: 0, last_at: null, last_actions: [], running: false, offline: true, skipped: true }; },
+    async me() { return (await load()).me; },
+    async programs() { return (await load()).programs ?? []; },
+    async pairs(organ) {
+      const s = await load();
+      const p = s.pairs ?? { organ: null, pairs: [], privacy: "" };
+      return { ...p, organ: organ ?? null, pairs: byOrgan(p.pairs, organ) };
+    },
+    async integrity(organ) {
+      const s = await load();
+      const i = (atLeast("repaired") ? s.integrity_after : s.integrity_before) ?? { findings: [], counts: {}, checks: {}, note: "" };
+      const findings = byOrgan(i.findings as any[], organ);
+      return { ...i, organ: organ ?? null, findings, counts: { error: findings.filter((f: any) => f.severity === "error").length, warn: findings.filter((f: any) => f.severity === "warn").length, info: findings.filter((f: any) => f.severity === "info").length } };
+    },
+    async simulations() { return (await load()).simulations ?? []; },
+    async audit(organ) {
+      const s = await load();
+      const cut = (s.event_cutoff ?? EVENT_CUTOFF)[readStage()];
+      const rows = ((s.audit ?? s.events) as any[]).filter((e) => e.seq <= cut);
+      return organ ? rows.filter((e) => e.organ === organ || e.organ === "shared") : rows;
+    },
     async approve(taskId, choice) {
       const s = await load();
       const task = s.pool_broken.open_tasks?.[0];

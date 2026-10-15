@@ -4,6 +4,7 @@ import { Icon } from "./icons";
 import { statusOf, type Tone } from "@/lib/data/derive";
 import { ApiError } from "@/lib/api";
 import { useData } from "@/lib/data/source";
+import { organOf } from "@/lib/organs";
 
 export function PageHeader({ title, description, actions }: { title: string; description?: React.ReactNode; actions?: React.ReactNode }) {
   return (
@@ -24,6 +25,31 @@ const TONE_GLYPH: Record<Tone, string> = { ok: "check", warn: "alert", bad: "ale
 export function Tag({ tone, children, title }: { tone: Tone; children: React.ReactNode; title?: string }) {
   const g = TONE_GLYPH[tone];
   return <span className={`pill ${TONE_CLASS[tone]}`} title={title}>{g && <Icon name={g} size={12} strokeWidth={2.2} />}{children}</span>;
+}
+/** Which organ a swap or family is for. Outlined in the organ's colour; on the dark map panels pass `dark`. */
+export function OrganTag({ organ, dark }: { organ?: string | null; dark?: boolean }) {
+  const o = organOf(organ);
+  return <span className="pill" style={{ color: dark ? o.line : o.tone, border: "1px solid currentColor" }}>{o.label}</span>;
+}
+/** A program evaluation status. These are workflow statuses from program configuration, not diagnoses. */
+const EVAL: Record<string, { tone: Tone; label: string }> = {
+  ELIGIBLE: { tone: "ok", label: "Eligible" }, REVIEW_REQUIRED: { tone: "warn", label: "Review required" },
+  UNKNOWN: { tone: "neutral", label: "Unknown" }, INELIGIBLE: { tone: "bad", label: "Ineligible" },
+};
+export function EvalTag({ status, title }: { status?: string | null; title?: string }) {
+  const e = EVAL[status ?? "UNKNOWN"] ?? EVAL.UNKNOWN;
+  return <Tag tone={e.tone} title={title ?? `${e.label} (program status, synthetic)`}>{e.label}</Tag>;
+}
+
+/** Marks which side of the privacy boundary a block of data sits on. */
+export function DataScope({ scope, dark }: { scope: "shared" | "private"; dark?: boolean }) {
+  const shared = scope === "shared";
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[0.66rem] font-bold uppercase tracking-[0.12em]"
+          style={{ color: shared ? (dark ? "#A6D8B5" : "var(--forest-mid)") : (dark ? "#F3DCA9" : "var(--warn)") }}>
+      <Icon name={shared ? "pool" : "hospital"} size={13} />{shared ? "Shared exchange data" : "Private to hospital"}
+    </span>
+  );
 }
 export function StatusPill({ status, repairReady }: { status: string; repairReady?: boolean }) {
   const s = statusOf(status, repairReady);

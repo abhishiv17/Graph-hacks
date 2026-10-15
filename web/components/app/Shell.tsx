@@ -7,16 +7,21 @@ import { Logo } from "@/components/Logo";
 import DemoGuide from "./DemoGuide";
 import { DataProvider, useData, useResource } from "@/lib/data/source";
 import { fmtTime, loopRoute } from "@/lib/data/derive";
+import { PROGRAM_LABEL, ProgramProvider, useProgram, type ProgramKey } from "@/lib/program";
+import { ORGANS, ORGAN_NAMES, organOf } from "@/lib/organs";
+import type { Viewer } from "@/lib/data/types";
+import { gsap, useGSAP } from "@/components/landing/gsap";
 
 export const NAV_GROUPS = [
   { title: "Run the exchange", items: [
     { href: "/pool", label: "Live pool", icon: "pool", sub: "Map of every planned donation" },
-    { href: "/swaps", label: "Swaps", icon: "swaps", sub: "Lab tests, failures, repairs" },
-    { href: "/committee", label: "Committee papers", icon: "committee", sub: "Legal approvals and deadlines" },
+    { href: "/swaps", label: "Swaps", icon: "swaps", sub: "Tests, failures, repairs" },
+    { href: "/committee", label: "Committee review", icon: "committee", sub: "Program checklists and papers" },
+    { href: "/integrity", label: "Integrity", icon: "integrity", sub: "Data and workflow checks" },
     { href: "/case/P-0154", label: "Family view", icon: "family", sub: "What a family sees" },
   ] },
   { title: "Understand it", items: [
-    { href: "/lab", label: "Guided replay", icon: "replay", sub: "A failure and repair, step by step" },
+    { href: "/lab", label: "Simulation lab", icon: "replay", sub: "Each program's scenario, step by step" },
     { href: "/impact", label: "Impact", icon: "lab", sub: "A simulated year, measured" },
     { href: "/graph", label: "How it works", icon: "database", sub: "FalkorDB graphs, queries, agents" },
     { href: "/audit", label: "Audit trail", icon: "audit", sub: "Every action and decision" },
@@ -33,14 +38,47 @@ function crumbs(path: string): { label: string; href?: string }[] {
 }
 const isActive = (path: string, href: string) => path === href || path.startsWith(href + "/") || (href.startsWith("/case/") && path.startsWith("/case/"));
 
+/** One platform, two programs. The choice changes every screen's data, columns, words and scenario. */
+function ProgramSwitcher() {
+  const { program, setProgram } = useProgram();
+  const opts: { key: ProgramKey; label: string; sub: string }[] = [
+    ...ORGAN_NAMES.map((o) => ({ key: o as ProgramKey, label: ORGANS[o].label, sub: "Paired donation" })),
+    { key: "all", label: "All programs", sub: "Operational overview" },
+  ];
+  return (
+    <div className="px-3 pb-4" role="radiogroup" aria-label="Exchange program">
+      <p className="px-3 pb-1.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em]" style={{ color: "#6F8F80" }}>Exchange program</p>
+      <div className="grid grid-cols-2 gap-1.5">
+        {opts.map((o) => {
+          const on = program === o.key;
+          const tone = o.key === "all" ? "#A6D8B5" : ORGANS[o.key].lineFocus;
+          return (
+            <button key={o.key} role="radio" aria-checked={on} onClick={() => setProgram(o.key)}
+                    className={`text-left rounded-lg border px-3 py-2 transition-colors hover:bg-white/5 ${o.key === "all" ? "col-span-2" : ""}`}
+                    style={{ borderColor: on ? tone : "rgba(166,216,181,0.18)", background: on ? "rgba(166,216,181,0.12)" : "transparent" }}>
+              <span className="flex items-center gap-1.5 text-[0.86rem] font-semibold" style={{ color: on ? "#FFFFFF" : "#D5E3DA" }}>
+                {o.key !== "all" && <span className="h-2 w-2 rounded-full" style={{ background: ORGANS[o.key].line }} aria-hidden="true" />}{o.label}
+              </span>
+              <span className="block text-[0.68rem] leading-snug" style={{ color: "#7E9A8B" }}>{o.sub}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function NavList({ path, onNavigate }: { path: string; onNavigate?: () => void }) {
+  const { view } = useProgram();
   return (
     <nav aria-label="Workspace" className="flex-1 px-3 py-2 overflow-y-auto">
       {NAV_GROUPS.map((g) => (
         <div key={g.title} className="mb-5">
           <p className="px-3 pb-1.5 text-[0.66rem] font-semibold uppercase tracking-[0.14em]" style={{ color: "#6F8F80" }}>{g.title}</p>
           <ul className="space-y-0.5">
-            {g.items.map((n) => {
+            {g.items.map((item) => {
+              // The family view opens the current program's story family.
+              const n = item.href.startsWith("/case/") ? { ...item, href: `/case/${(view ?? ORGANS.kidney).familyPair}` } : item;
               const on = isActive(path, n.href);
               return (
                 <li key={n.href}>
@@ -95,9 +133,11 @@ function OfflineChip() {
 
 function Notifications() {
   const pool = useResource("pool", (a) => a.pool(), 5000);
+  const { includes } = useProgram();
   const [open, setOpen] = useState(false);
-  const tasks = pool.data?.open_tasks ?? [];
-  const esc = pool.data?.escalations ?? [];
+  const organOfLoop = (id: string) => pool.data?.loops.find((l) => l.loop_id === id)?.organ;
+  const tasks = (pool.data?.open_tasks ?? []).filter((t) => includes(organOfLoop(t.loop_id)));
+  const esc = (pool.data?.escalations ?? []).filter((e) => includes(organOfLoop(e.loop_id)));
   const count = tasks.length + esc.length;
   return (
     <div className="relative">
@@ -115,7 +155,7 @@ function Notifications() {
                 return (
                   <li key={t.task_id}>
                     <Link href={`/swaps/${t.loop_id}`} onClick={() => setOpen(false)} className="block rounded-lg px-2 py-2 text-sm hover:bg-[var(--surface-soft)]">
-                      <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>Repair to review · {t.loop_id}</span>
+                      <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{organOf(l).label} repair to review · {t.loop_id}</span>
                       <span className="block muted">{l ? loopRoute(l) : ""} · {fmtTime(t.at)}</span>
                     </Link>
                   </li>
@@ -139,6 +179,7 @@ function Notifications() {
 
 function Search() {
   const pool = useResource("pool", (a) => a.pool());
+  const { includes } = useProgram();
   const router = useRouter();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -146,12 +187,12 @@ function Search() {
     const s = q.trim().toLowerCase();
     if (s.length < 2 || !pool.data) return [];
     const out: { href: string; label: string; sub: string }[] = [];
-    for (const l of pool.data.loops) {
+    for (const l of pool.data.loops.filter((x) => includes(x.organ))) {
       if (l.loop_id.toLowerCase().includes(s) || loopRoute(l).toLowerCase().includes(s)) out.push({ href: `/swaps/${l.loop_id}`, label: l.loop_id, sub: loopRoute(l) });
       for (const p of l.pairs) if (p.pair_id.toLowerCase().includes(s)) out.push({ href: `/pool?pair=${p.pair_id}`, label: p.pair_id, sub: `${p.city} · ${l.loop_id}` });
     }
     return out.filter((r, i, a) => a.findIndex((x) => x.href === r.href) === i).slice(0, 8);
-  }, [q, pool.data]);
+  }, [q, pool.data, includes]);
   return (
     <div className="relative hidden md:block">
       <label className="sr-only" htmlFor="ws-search">Search exchanges and pairs</label>
@@ -182,8 +223,26 @@ function Search() {
 }
 
 function Avatar() {
+  const me = useResource<Viewer>("me", (a) => a.me());
+  const v = me.data;
+  const name = v?.name ?? "Meera Iyer";
+  const role = v?.role_label ?? "Platform admin";
+  const initials = name.split(" ").map((w) => w[0]).join("").slice(0, 2);
   return (
-    <span className="grid h-9 w-9 place-items-center rounded-full text-xs font-bold" style={{ background: "var(--forest)", color: "var(--mint)" }} title="Meera Iyer · Exchange coordinator" aria-label="Signed in as Meera Iyer, exchange coordinator">MI</span>
+    <span className="grid h-9 w-9 place-items-center rounded-full text-xs font-bold" style={{ background: "var(--forest)", color: "var(--mint)" }}
+          title={`${name} · ${role} · demo identity (no authentication in this prototype)`} aria-label={`Demo identity ${name}, ${role}. No authentication in this prototype.`}>{initials}</span>
+  );
+}
+
+/** The program the breadcrumb starts from, so every screen says which program it shows. */
+function ProgramCrumb() {
+  const { program, view } = useProgram();
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold shrink-0"
+          style={{ borderColor: view ? view.tone : "var(--line-strong)", color: view ? view.tone : "var(--ink)" }}>
+      {view && <span className="h-1.5 w-1.5 rounded-full" style={{ background: view.tone }} aria-hidden="true" />}
+      {view ? view.title : PROGRAM_LABEL[program]}
+    </span>
   );
 }
 
@@ -198,12 +257,21 @@ function ShellInner({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [menu]);
   const c = crumbs(path);
+  const { program } = useProgram();
+  const content = useRef<HTMLDivElement>(null);
+  // Switching programs is a change of context, so the content settles in again (unless motion is reduced).
+  useGSAP(() => {
+    gsap.matchMedia().add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.fromTo(content.current, { autoAlpha: 0.35, y: 6 }, { autoAlpha: 1, y: 0, duration: 0.35, ease: "power2.out" });
+    });
+  }, { dependencies: [program], scope: content });
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] btn">Skip to content</a>
       <aside className="hidden lg:flex lg:flex-col sticky top-0 h-screen" style={{ background: "var(--forest-deep)" }}>
-        <Link href="/" className="px-6 pt-6 pb-6" aria-label="KindRed home"><Logo tone="dark" size={28} /></Link>
+        <Link href="/" className="px-6 pt-6 pb-5" aria-label="KindRed home"><Logo tone="dark" size={28} /></Link>
+        <ProgramSwitcher />
         <NavList path={path} />
       </aside>
 
@@ -215,6 +283,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
               <Logo tone="dark" size={26} />
               <button className="rounded-md p-1.5 text-white" onClick={() => setMenu(false)} aria-label="Close navigation"><Icon name="close" size={20} /></button>
             </div>
+            <ProgramSwitcher />
             <NavList path={path} onNavigate={() => setMenu(false)} />
           </aside>
         </div>
@@ -228,9 +297,10 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             </button>
             <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
               <ol className="flex items-center gap-1.5 text-sm truncate">
+                <li className="flex items-center"><ProgramCrumb /></li>
                 {c.map((x, i) => (
                   <li key={i} className="flex items-center gap-1.5 min-w-0">
-                    {i > 0 && <Icon name="chevron" size={14} className="muted shrink-0" />}
+                    <Icon name="chevron" size={14} className="muted shrink-0" />
                     {x.href ? <Link href={x.href} className="muted hover:underline truncate">{x.label}</Link>
                       : <span className="font-semibold truncate" style={{ color: "var(--ink-strong)" }} aria-current="page">{x.label}</span>}
                   </li>
@@ -243,12 +313,12 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             <Avatar />
           </div>
         </header>
-        <main id="main" className="flex-1 px-4 sm:px-6 lg:px-10 pt-4 pb-12 max-w-[1480px] w-full"><DemoGuide />{children}</main>
+        <main id="main" className="flex-1 px-4 sm:px-6 lg:px-10 pt-4 pb-12 max-w-[1480px] w-full"><div ref={content}><DemoGuide />{children}</div></main>
       </div>
     </div>
   );
 }
 
 export default function Shell({ children }: { children: React.ReactNode }) {
-  return <DataProvider><ShellInner>{children}</ShellInner></DataProvider>;
+  return <DataProvider><ProgramProvider><ShellInner>{children}</ShellInner></ProgramProvider></DataProvider>;
 }

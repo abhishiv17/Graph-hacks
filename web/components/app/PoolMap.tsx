@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INDIA, MAP_H, MAP_W, NEIGHBOURS, STATE_LINES, project } from "@/lib/india-map";
 import type { Hospital, LoopSummary, PoolLink } from "@/lib/data/types";
 import { Icon } from "./icons";
+import { ORGAN_NAMES, ORGANS, organOf } from "@/lib/organs";
 
 type Pt = [number, number];
 type View = { k: number; x: number; y: number };
@@ -16,7 +17,8 @@ const MIN_K = 1, MAX_K = 14;
 const HOME: View = { k: 1, x: 0, y: 0 };
 const C = {
   sea: "#0B1E19", land: "#1A3D33", landEdge: "#4F8A73", states: "rgba(166,216,181,0.16)", neighbour: "#132C26",
-  live: "#7DBF97", focus: "#C9F0D6", failed: "#E08A80", selected: "#FFFFFF", city: "#0F2621", cityRing: "#A6D8B5",
+  failed: "#E08A80",  // donation lines take their organ's colour (lib/organs.ts)
+  selected: "#FFFFFF", city: "#0F2621", cityRing: "#A6D8B5",
 };
 
 type Drawn = {
@@ -237,7 +239,8 @@ export default function PoolMap({ hospitals, loops, links, focusLoop, selectedLi
             const sel = d.key === selectedLink;
             const hot = hover?.key === d.key;
             const dim = (!!focusLoop && !inFocus && !touches(d)) || (!!selectedCity && !touches(d) && !inFocus);
-            const color = failed ? C.failed : sel ? C.selected : inFocus ? C.focus : C.live;
+            const org = organOf(l);
+            const color = failed ? C.failed : sel ? C.selected : inFocus ? org.lineFocus : org.line;
             const width = sel ? 3.6 : inFocus ? 2.8 : hot ? 2.6 : 1.5;
             const opacity = sel || inFocus || hot ? 1 : dim ? 0.18 : brokenLoop ? 0.5 : 0.62;
             const label = `${city.get(d.from)?.city} donor to ${city.get(d.to)?.city} patient, ${l.from_pair} to ${l.to_pair}, ${l.loop_id}${failed ? ", failed" : l.p_success != null ? `, ${Math.round(l.p_success * 100)}% likely to hold` : ""}`;
@@ -314,9 +317,10 @@ export default function PoolMap({ hospitals, loops, links, focusLoop, selectedLi
 
       {/* legend and hint */}
       <div className="absolute left-3 bottom-3 rounded-lg px-3 py-2 text-[0.72rem] space-y-1 pointer-events-none" style={{ background: "rgba(11,30,25,0.85)", color: "#B9CBBF" }}>
-        <p className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={C.focus} strokeWidth="2.6" /></svg>Swap in focus</p>
-        <p className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={C.live} strokeWidth="1.6" /></svg>Other planned donations</p>
-        <p className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={C.failed} strokeWidth="2" strokeDasharray="5 4" /></svg>Failed lab test</p>
+        {ORGAN_NAMES.filter((o) => links.some((l) => (l.organ ?? "kidney") === o)).map((o) => (
+          <p key={o} className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={ORGANS[o].line} strokeWidth="1.8" /></svg>{ORGANS[o].label} donation <span style={{ color: "#8FAF9D" }}>(brighter in focus)</span></p>
+        ))}
+        <p className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={C.failed} strokeWidth="2" strokeDasharray="5 4" /></svg>Failed test or work-up</p>
         <p className="pt-1" style={{ color: "#8FAF9D" }}>Scroll to zoom · drag to move · click a line</p>
       </div>
 

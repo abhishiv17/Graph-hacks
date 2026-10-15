@@ -11,13 +11,13 @@ type Status = "Built" | "Partly" | "Not yet";
 const RUBRIC: { track: string; items: { point: string; how: string; evidence: string[]; status: Status }[] }[] = [
   { track: "Track 1 · Agents that act on connected data", items: [
     { point: "Multi-hop reasoning", status: "Built",
-      how: "The virtual crossmatch walks donor → tissue type ← antibody ← patient (3 hops) before any lab test. A swap loop is a 2- or 3-hop cycle of donations. A repair searches only within 2 hops of the families a failure released.",
-      evidence: ["Q02_build_edges_for_pair", "Q03_virtual_crossmatch", "Q05_three_way_loops", "Q11_local_repair_candidates"] },
+      how: "Each program builds its links with its own rule. Kidney: the virtual crossmatch walks donor → tissue type ← antibody ← patient (3 hops) before any lab test. Liver: the ABO traversal, then graft size and evaluation statuses on the donor's LiverProfile. A swap loop is a 2- or 3-hop loop of donations inside one program. A repair searches only within 2 hops of the families a failure released.",
+      evidence: ["Q02_build_edges_for_pair", "Q21_liver_edges_for_pair", "Q03_virtual_crossmatch", "Q05_three_way_loops", "Q11_local_repair_candidates"] },
     { point: "Graph queries and algorithms as agent tools", status: "Built",
       how: "FalkorDB's algo.WCC splits the pool into independent parts before matching; algo.betweenness finds bridge families whose withdrawal would break the most loops. Loop search is Cypher. Each is wrapped as a tool.",
       evidence: ["Q07_components", "Q19_bridge_pairs", "Q04_two_way_loops"] },
     { point: "Tool selection through MCP", status: "Partly",
-      how: "An MCP server exposes 18 tools (find_loops, components, local_repair, explain, …) that any MCP client, such as Claude, can choose from. The in-app agents call the same functions directly; an LLM agent choosing tools live in the UI is not built yet.",
+      how: "An MCP server exposes 22 tools that any MCP client, such as Claude, can choose from. Matching tools take an explicit organ (find_loops, find_exchange_candidates), and explain_evidence, program_rules and integrity_checks return only graph facts. The in-app agents call the same functions directly; an LLM agent choosing tools live in the UI is not built yet.",
       evidence: [] },
     { point: "Actions based on what the graph shows", status: "Built",
       how: "Agents send offers, request lab tests, record a failure as a FAILED edge, propose a repair, and chase committee papers, each triggered by graph state.",
@@ -59,7 +59,7 @@ export default function HowItWorks() {
     <div>
       <h1 className="font-display text-[2.1rem] leading-none mb-4" style={{ color: "var(--ink-strong)" }}>How it works</h1>
       <PageIntro id="graph"
-        what={<>KindRed is built on <strong>FalkorDB</strong>, a graph database. A kidney swap is a graph problem: families are nodes, possible donations are edges, and a swap is a cycle. Lab results, failures, decisions and tasks live in the same <Term k="graph">graph</Term>, so every agent works from one shared, explainable picture. Without the graph there is no matching, no repair and no memory.</>}
+        what={<>KindRed is built on <strong>FalkorDB</strong>, a graph database. A living-donor swap, kidney or liver, is a graph problem: families are nodes, possible donations are edges, and a swap is a loop. Both programs share the graph engine, but each builds its edges with its own rule, and a loop never mixes programs. Lab results, failures, decisions and tasks live in the same <Term k="graph">graph</Term>, so every agent works from one shared, explainable picture. Without the graph there is no matching, no repair and no memory.</>}
         steps={[
           <>The model: what kinds of nodes and connections the graph holds.</>,
           <>What&rsquo;s in FalkorDB right now, per graph, updated live.</>,

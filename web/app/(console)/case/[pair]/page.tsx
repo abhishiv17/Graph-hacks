@@ -2,7 +2,8 @@
 import Link from "next/link";
 import { PageIntro, Term } from "@/components/app/Help";
 import { use, useState } from "react";
-import { ErrorState, Loading, PageHeader } from "@/components/app/ui";
+import { ErrorState, Loading, OrganTag, PageHeader } from "@/components/app/ui";
+import { organOf } from "@/lib/organs";
 import { Icon } from "@/components/app/icons";
 import { useResource } from "@/lib/data/source";
 import { Logo } from "@/components/Logo";
@@ -17,7 +18,7 @@ export default function Case({ params }: { params: Promise<{ pair: string }> }) 
   return (
     <div>
       <PageIntro id="family" what={<>This is what the patient&rsquo;s family would see on their phone: where their swap stands and what happens next, in plain words and their own language. It shows only their own case, never another family&rsquo;s details. Every sentence is built from facts in the graph, not invented by AI.</>} />
-      <PageHeader title={`Family view · ${pair}`}
+      <PageHeader title={`Family view · ${pair}${r.data?.facts?.organ ? ` · ${organOf(r.data.facts.organ).label} program` : ""}`}
         description="What this family sees on their phone, in their language. Only their own case, nothing about other families."
         actions={
           <div className="flex rounded-lg border p-0.5" role="group" aria-label="Language" style={{ borderColor: "var(--line-strong)" }}>
@@ -56,7 +57,8 @@ export default function Case({ params }: { params: Promise<{ pair: string }> }) 
             </section>
             {r.data.facts && (
               <dl className="grid grid-cols-2 gap-4 text-sm">
-                {[["Exchange", r.data.facts.loop_id ? <Link className="hover:underline" href={`/swaps/${r.data.facts.loop_id}`}>{r.data.facts.loop_id} ({r.data.facts.loop_kind})</Link> : "–"],
+                {[["Program", <OrganTag key="o" organ={r.data.facts.organ} />],
+                  ["Exchange", r.data.facts.loop_id ? <Link className="hover:underline" href={`/swaps/${r.data.facts.loop_id}`}>{r.data.facts.loop_id} ({r.data.facts.loop_kind})</Link> : "–"],
                   ["Exchange status", r.data.facts.loop_status ?? "–"],
                   ["Donor", r.data.facts.donor_relation],
                   ["Committee", String(r.data.facts.approval_state ?? "–").replace(/_/g, " ")],

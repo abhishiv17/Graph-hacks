@@ -20,6 +20,7 @@ export function TopNav() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
         <nav className="hidden md:flex gap-8 font-bold" style={{ color: "#4A5952" }} aria-label="Sections">
           <a href="#how" className="hover:text-[#183B32] transition-colors">How it works</a>
+          <a href="#programs" className="hover:text-[#183B32] transition-colors">Programs</a>
           <a href="#repair" className="hover:text-[#183B32] transition-colors">When a test fails</a>
         </nav>
         <Link href="/" aria-label="KindRed home" className="justify-self-start md:justify-self-center"><Logo size={30} /></Link>
@@ -41,10 +42,10 @@ export function StoryBand() {
         <h2 className="k-serif text-4xl sm:text-6xl leading-[1.05]">Most of these families never get there.</h2>
         <p className="mx-auto mt-8 max-w-3xl text-lg sm:text-xl leading-relaxed" style={{ color: "#C9D8CD" }}>
           India does more living-donor transplants than any other country, yet it meets only about{" "}
-          <Num>7%</Num> of its yearly need for kidneys. Up to <Num>1 in 3</Num> willing family donors is ruled out
-          by blood group or antibodies. Swaps would help them, but in 24 years India has managed{" "}
-          <Num>1,839</Num>. Finding a match is the easy part. The swap falls apart afterwards, when a late lab test
-          fails and a coordinator has to start again by phone.
+          <Num>7%</Num> of its yearly need for kidneys and about <Num>1.5%</Num> for livers. Many willing family donors
+          are ruled out by blood group alone. Swaps would help them, but India has managed{" "}
+          <Num>1,839</Num> kidney swaps in 24 years and <Num>259</Num> liver swaps at 7 centres. Finding a match is the easy
+          part. The swap falls apart afterwards, when a late test fails and a coordinator has to start again by phone.
         </p>
       </div>
       <Edge color="#F7F6F0" seed={4} />
@@ -135,9 +136,9 @@ function Spot({ k, size = 64 }: { k: string; size?: number }) {
 /* ---------------------------------------------------------------- who does what */
 
 const PIPE = [
-  { k: "find", h: "The graph finds", t: "Every two- and three-family loop across all 11 hospitals, with the reason each link can or can't work." },
+  { k: "find", h: "The graph finds", t: "Every two- and three-family loop within each program across 11 hospitals, with the reason each link can or can't work." },
   { k: "choose", h: "The optimiser chooses", t: "It picks loops by how many transplants they're likely to deliver, counting the chance a lab test fails." },
-  { k: "ask", h: "Agents ask", t: "They send offers to each hospital, gather answers and request the crossmatch lab tests." },
+  { k: "ask", h: "Agents ask", t: "They send offers to each hospital, gather answers and request each program's test: a lab crossmatch, or a donor work-up." },
   { k: "mend", h: "KindRed mends", t: "When a test fails, it re-plans only around the break. Loops already booked are never touched." },
   { k: "decide", h: "A person decides", t: "A coordinator approves every change, and each decision is logged with what it was based on." },
 ];
@@ -157,7 +158,7 @@ export function Pipeline() {
         <div className="max-w-3xl">
           <h2 className="k-serif text-4xl sm:text-[3.4rem] leading-[1.05]">Evidence first. A person decides.</h2>
           <p className="k-body mt-5 text-lg sm:text-xl leading-relaxed">
-            The language model never chooses who gets a kidney. It only writes the messages families read, from facts the graph hands it.
+            Software never decides who receives an organ. The language model can explain the evidence the graph returns and write the messages families read; it cannot approve, allocate, or declare anyone medically suitable.
           </p>
         </div>
         <div className="pipe-row relative mt-16">
@@ -189,6 +190,7 @@ const TRAIL = [
   { t: "09:41", who: "Crossmatch coordinator", kind: "Simulated agent", text: "Bengaluru → Kolkata crossmatch positive (DQ7). Link stored as failed.", tone: "bad" },
   { t: "09:41", who: "Matching agent", kind: "Simulated agent", text: "Repair proposed for S-0076: Hyderabad → Bengaluru → Chennai, found in 41 ms", tone: "warn" },
   { t: "09:43", who: "Exchange coordinator", kind: "Person", text: "Approved the repair. New exchange S-0078 includes Chennai P-0377.", tone: "ok" },
+  { t: "10:05", who: "Crossmatch coordinator", kind: "Simulated agent", text: "Liver L-0034: Chennai donor work-up finds the graft too small for Kochi (synthetic rule). Link stored as failed.", tone: "bad" },
 ];
 
 export function AuditHistory() {
@@ -245,7 +247,7 @@ export function Results() {
         <div className="rounded-[40px] px-6 py-12 sm:px-12 sm:py-16 grid lg:grid-cols-[1.25fr_0.75fr] gap-12 lg:gap-16" style={{ background: "#EFEEE6" }}>
           <div>
             <h2 className="k-serif text-4xl sm:text-5xl leading-[1.06]">
-              In a simulated year, <span className="italic" style={{ color: "#2C5A4B" }}>76% more transplants</span> than hospitals working alone.
+              In a simulated kidney-program year, <span className="italic" style={{ color: "#2C5A4B" }}>76% more transplants</span> than hospitals working alone.
             </h2>
             <div className="bars mt-12 space-y-7">
               {BARS.map((b) => (
@@ -260,7 +262,7 @@ export function Results() {
                 </div>
               ))}
             </div>
-            <p className="k-body mt-6 text-sm">Transplants per simulated year: average of 20 runs of 52 weeks, about 539 families arriving. Lab results take 9 days, as in multi-centre programmes.</p>
+            <p className="k-body mt-6 text-sm">Kidney program only. Transplants per simulated year: average of 20 runs of 52 weeks, about 539 families arriving. Lab results take 9 days, as in multi-centre programmes. The liver program has no simulated year yet.</p>
           </div>
           <div className="space-y-8 lg:pt-24 text-lg leading-relaxed k-body">
             <p>
@@ -281,10 +283,10 @@ export function Results() {
 /* ---------------------------------------------------------------- promises */
 
 const PROMISES = [
-  { k: "ai", h: "Software never picks who gets a kidney.", p: "Loops come from the graph and choices from an optimiser you can inspect. The language model only explains." },
+  { k: "ai", h: "Software never allocates an organ.", p: "Loops come from the graph and rankings from an optimiser with stated rules. The language model only explains returned evidence; it can't approve a transplant or invent a fact." },
   { k: "person", h: "A person approves every repair.", p: "KindRed prepares the repair and keeps a fallback ready. A coordinator decides, and the decision is recorded." },
   { k: "law", h: "Indian law is checked before matching.", p: "Near-relative donors only, Authorisation Committee approval for each pair, no altruistic chains." },
-  { k: "lock", h: "Names stay at home.", p: "Names, full HLA typing and documents stay in each hospital's own graph. The shared pool sees only what matching needs." },
+  { k: "lock", h: "Names stay at home.", p: "Names, full HLA typing, CT measurements, clinical notes and documents stay in each hospital's own graph. The shared pool sees only what matching needs." },
   { k: "query", h: "Every number can be traced.", p: "Each screen shows the named Cypher queries behind it and how long they took." },
   { k: "lang", h: "Families hear it in their own language.", p: "Each family sees only their own case, in English or Hindi, without medical jargon." },
 ];
@@ -313,10 +315,10 @@ export function Promises() {
 /* ---------------------------------------------------------------- call to action */
 
 const TRY = [
-  "Open the live pool: 154 families across 11 hospitals.",
-  "Press New referral · Chennai to bring a new family in.",
-  "Open the Hyderabad loop and press Run lab tests.",
+  "Open the live pool: kidney and liver families across 11 hospitals.",
+  "Kidney: open the Hyderabad loop and press Run lab tests.",
   "Watch one test fail, then press Approve repair.",
+  "Switch to the liver program and run the donor work-ups on L-0034.",
 ];
 
 export function FinalCTA() {

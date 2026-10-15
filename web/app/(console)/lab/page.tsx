@@ -1,54 +1,106 @@
 "use client";
 import Link from "next/link";
-import { PageIntro, Term } from "@/components/app/Help";
+import { PageIntro } from "@/components/app/Help";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ExchangeGraph, { GraphLegend, type GEdge, type GNode } from "@/components/app/ExchangeGraph";
-import { ErrorState, Loading, PageHeader, Section } from "@/components/app/ui";
+import { ErrorState, Loading, PageHeader, Section, Tag } from "@/components/app/ui";
 import { Icon } from "@/components/app/icons";
 import { useResource } from "@/lib/data/source";
 import { workspace } from "@/lib/data/workspace";
 import { gsap, useGSAP } from "@/components/landing/gsap";
+import { useProgram } from "@/lib/program";
+import { ORGANS, ORGAN_NAMES, type OrganName, type OrganView } from "@/lib/organs";
+import type { Scenario as ScenarioDef } from "@/lib/data/types";
 
 type Choice = "recommended" | "fallback" | "hold";
 type Step = { title: string; detail: string; actor: "agent" | "system" | "user"; tone?: "bad" | "ok" | "warn" };
+type Recorded = { id: string; before: any; broken: any; prop: any; lab: any };
 
-/** The recorded scenario: real outputs of the backend for S-0076, replayed step by step. */
-function useScenario() {
-  return useResource("sim-scenario", async () => {
+/** The recorded scenario for one program: real outputs of the backend, replayed step by step. */
+function useRecorded(organ: OrganName) {
+  return useResource<Recorded | null>(`sim-scenario:${organ}`, async () => {
     const s = (await import("@/lib/demo/snapshot.json")).default as any;
-    const before = s.loops_before[s.focus_loop];
-    return { id: s.focus_loop as string, before, broken: s.loop_broken, prop: s.loop_broken.proposal, lab: s.lab_result, repaired: s.loop_repaired };
+    if (organ === "liver") {
+      if (!s.liver_focus_loop) return null;
+      return { id: s.liver_focus_loop, before: s.liver_loop_before, broken: s.liver_loop_broken, prop: s.liver_loop_broken.proposal, lab: s.liver_lab_result };
+    }
+    return { id: s.focus_loop, before: s.loops_before[s.focus_loop], broken: s.loop_broken, prop: s.loop_broken.proposal, lab: s.lab_result };
   });
 }
 
 export default function Lab() {
-  const sc = useScenario();
+  const { organ, view } = useProgram();
+  const [pickedAll, setPickedAll] = useState<OrganName>("kidney");
+  const which: OrganName = organ ?? pickedAll;
+  const o = ORGANS[which];
+  const rec = useRecorded(which);
+  const defs = useResource<ScenarioDef[]>("simulations", (a) => a.simulations());
+  const def = defs.data?.find((d) => d.organ === which);
   return (
     <div>
-      <PageHeader title="Guided replay"
-        description="Watch KindRed recover a swap after a lab test fails, one step at a time." />
-      <PageIntro id="replay" what={<>A slow-motion replay of the core story, for explaining it to someone: a 3-way swap is proposed, one lab test comes back positive, the graph records the failure, searches nearby, finds a replacement family and keeps a fallback, then stops for a person to decide. Step through it with the buttons. It uses the same data as the live demo but changes nothing.</>} />
-      {sc.error && !sc.data ? <ErrorState error={sc.error} onRetry={sc.reload} what="the recorded scenario" /> : !sc.data ? <Loading rows={8} /> : <Scenario sc={sc.data} />}
+      <PageHeader title={`Simulation lab · ${o.label}`}
+        description={`A recorded ${o.label.toLowerCase()} scenario, replayed one step at a time: a proposed exchange, a failure, a local repair, and a stop for a person to decide.`}
+        actions={!view && (
+          <div className="flex rounded-lg border p-0.5" role="group" aria-label="Scenario program" style={{ borderColor: "var(--line-strong)" }}>
+            {ORGAN_NAMES.map((k) => (
+              <button key={k} className="rounded-md px-3 py-1.5 text-sm font-semibold" aria-pressed={pickedAll === k} onClick={() => setPickedAll(k)}
+                      style={{ background: pickedAll === k ? "var(--forest)" : "transparent", color: pickedAll === k ? "#fff" : "var(--ink)" }}>{ORGANS[k].label}</button>
+            ))}
+          </div>
+        )} />
+      <PageIntro id="replay" what={<>Every program has its own scenario built on the same framework: an initial state, a failure event, a repair strategy and the human review step it ends at. The {o.label.toLowerCase()} scenario {which === "liver" ? "uses a program-defined graft-size rule, not a copy of the kidney crossmatch story" : "is the positive-crossmatch story"}. It replays recorded outputs of the real backend and changes nothing.</>} />
+      {def && <ScenarioCard def={def} o={o} />}
+      {rec.error && !rec.data ? <ErrorState error={rec.error} onRetry={rec.reload} what="the recorded scenario" />
+        : rec.data === undefined ? <Loading rows={8} />
+        : rec.data === null ? <p className="text-sm muted">No recorded {o.label.toLowerCase()} scenario in this build. Run scripts/capture-snapshot.py against the API to record it.</p>
+        : <Scenario key={which} sc={rec.data} o={o} />}
     </div>
   );
 }
 
-function Scenario({ sc }: { sc: any }) {
+function ScenarioCard({ def, o }: { def: ScenarioDef; o: OrganView }) {
+  return (
+    <section className="mb-8 rounded-[12px] border p-5" style={{ borderColor: "var(--line)", background: "var(--surface)" }} aria-label="Scenario definition">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-semibold" style={{ color: "var(--ink-strong)" }}>{def.id} · {def.title}</p>
+        <span className="flex gap-1.5"><Tag tone="sim">{o.label} program</Tag><Tag tone="sim">Synthetic demonstration</Tag></span>
+      </div>
+      <dl className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-4 text-sm">
+        {([["Initial state", def.initial_state], ["Failure event", def.failure_event], ["Repair strategy", def.repair_strategy], ["Expected review step", def.expected_review_step]] as const).map(([k, v]) => (
+          <div key={k}><dt className="label">{k}</dt><dd className="mt-1">{v}</dd></div>
+        ))}
+      </dl>
+      {def.story_loop && <p className="mt-3 text-xs muted">In the live pool this story is <Link className="underline" href={`/swaps/${def.story_loop}`}>{def.story_loop}</Link> ({def.story_status}{def.repaired_into ? `, repaired into ${def.repaired_into}` : ""}).</p>}
+    </section>
+  );
+}
+
+function Scenario({ sc, o }: { sc: Recorded; o: OrganView }) {
   const fams: any[] = sc.before.families;
-  const city = (pid: string) => fams.find((f) => f.pair_id === pid)?.city ?? (pid === sc.prop.recommended.pairs[2] ? "Chennai" : pid);
   const rec = sc.prop.recommended, fb = sc.prop.fallback;
+  // Cities come from the families, or (for a family joining in the repair) from the repair's route.
+  const routeCities: string[] = rec.route.split(/ → | ⇄ /);
+  const city = (pid: string) => fams.find((f) => f.pair_id === pid)?.city ?? routeCities[rec.pairs.indexOf(pid)] ?? pid;
   const failed = sc.prop.failed_link as [string, string];
   const neg = sc.lab.results?.find?.((r: any) => r.result === "negative");
+  const bad = sc.lab.results?.find?.((r: any) => r.result === "positive");
+  const joining = rec.pairs.find((p: string) => !fams.some((f) => f.pair_id === p)) as string | undefined;
+  const sameAsFallback = fb && fb.pairs.length === rec.pairs.length && fb.pairs.every((p: string) => rec.pairs.includes(p));
+  const kidney = o.name === "kidney";
 
   const steps: Step[] = [
-    { title: "Proposed exchange", actor: "agent", detail: `${sc.id}: ${fams.map((f) => f.city).join(" → ")}. Offers accepted by every hospital's intake agent; lab crossmatches requested. Chance every link holds: ${Math.round(sc.before.loop.p_success * 100)}%.` },
-    { title: "First crossmatch negative", actor: "agent", tone: "ok", detail: `${city(neg?.a ?? fams[0].pair_id)} donor → ${city(neg?.b ?? fams[1].pair_id)} patient: negative. The link can go ahead.` },
-    { title: "Positive crossmatch", actor: "agent", tone: "bad", detail: `${city(failed[0])} donor → ${city(failed[1])} patient: ${sc.prop.detail}.` },
+    { title: "Proposed exchange", actor: "agent", detail: `${o.exchange} ${sc.id}: ${fams.map((f) => f.city).join(" → ")}. Offers accepted by every hospital's intake agent; ${o.tests.toLowerCase()} requested. Chance every link holds: ${Math.round(sc.before.loop.p_success * 100)}%.` },
+    { title: kidney ? "First crossmatch negative" : "First donor work-up passed", actor: "agent", tone: "ok", detail: `${city(neg?.a ?? fams[0].pair_id)} donor → ${city(neg?.b ?? fams[1].pair_id)} patient: ${o.outcome.negative}. The link can go ahead.` },
+    { title: kidney ? "Positive crossmatch" : "Donor work-up: graft too small", actor: "agent", tone: "bad", detail: `${city(failed[0])} donor → ${city(failed[1])} patient: ${sc.prop.detail}.${kidney ? "" : " (Synthetic demonstration of the program's graft-size rule.)"}` },
     { title: "Link marked unavailable", actor: "system", tone: "bad", detail: `Failure ${sc.prop.failure_id} stored in the graph. This donor is never proposed to this patient again. ${sc.prop.released.length} families are released from the loop.` },
-    { title: "Searching nearby", actor: "agent", detail: `Searched ${sc.prop.candidates} candidate loops within two steps of the released families in ${sc.prop.found_ms} ms. ${sc.prop.untouched_loops} other loops were not touched.` },
-    { title: `Candidate found: ${rec.pairs[2]}`, actor: "agent", tone: "ok", detail: `Recommended repair ${rec.route}: expected ${rec.expected} of ${rec.size} transplants. ${rec.pairs[2]} (Chennai) joins.` },
-    { title: "Fallback kept ready", actor: "agent", detail: `Stored two-way swap ${fb.loop_id} (${city(fb.pairs[0])} ⇄ ${city(fb.pairs[1])}): expected ${fb.expected_tx} of 2, available without a new search.` },
-    { title: "Human approval checkpoint", actor: "user", tone: "warn", detail: "The simulation stops. A coordinator chooses the repair, the fallback, or to hold." },
+    { title: "Searching nearby", actor: "agent", detail: `Searched ${sc.prop.candidates} candidate ${o.label.toLowerCase()} loops within two steps of the released families in ${sc.prop.found_ms} ms. ${sc.prop.untouched_loops} other loops were not touched.` },
+    joining
+      ? { title: `Candidate found: ${joining}`, actor: "agent", tone: "ok", detail: `Recommended repair ${rec.route}: expected ${rec.expected} of ${rec.size} transplants. ${joining} (${city(joining)}) joins.` }
+      : { title: "Repair found", actor: "agent", tone: "ok", detail: `Recommended repair ${rec.route}: expected ${rec.expected} of ${rec.size} transplants. The families whose links still hold can swap with each other.` },
+    fb
+      ? { title: "Fallback kept ready", actor: "agent", detail: sameAsFallback ? `The stored two-way swap ${fb.loop_id} is this same pathway, so it is ready without a new search (expected ${fb.expected_tx} of 2).` : `Stored two-way swap ${fb.loop_id} (${city(fb.pairs[0])} ⇄ ${city(fb.pairs[1])}): expected ${fb.expected_tx} of 2, available without a new search.` }
+      : { title: "No fallback stored", actor: "agent", detail: "This loop had no smaller swap inside it to keep in reserve." },
+    { title: "Human approval checkpoint", actor: "user", tone: "warn", detail: kidney ? "The simulation stops. A coordinator chooses the repair, the fallback, or to hold." : "The simulation stops. A coordinator chooses the repair or to hold; the surgical suitability review then covers the new pathway before committee." },
   ];
   const LAST = steps.length - 1;
 
@@ -66,13 +118,13 @@ function Scenario({ sc }: { sc: any }) {
     return () => clearTimeout(t);
   }, [playing, step, LAST]);
 
-  // Record each step once per run in the audit trail, marked as simulated.
+  // Record each step once per run in the audit trail, marked as simulated and tagged with its program.
   useEffect(() => {
     const k = `${run}:${step}`;
     if (step === 0 || logged.current.has(k)) return;
     logged.current.add(k);
     const s = steps[step];
-    workspace.log({ type: "simulation", actor: s.actor === "user" ? "system" : s.actor, simulated: true, ref: `SIM-${sc.id}-${run}`, text: `Simulation run ${run}: ${s.title}. ${s.detail}`, review: step === LAST ? "pending" : "n/a" });
+    workspace.log({ type: "simulation", actor: s.actor === "user" ? "system" : s.actor, simulated: true, ref: `SIM-${sc.id}-${run}`, text: `${o.label} simulation run ${run}: ${s.title}. ${s.detail}`, review: step === LAST ? "pending" : "n/a" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, run]);
 
@@ -87,15 +139,16 @@ function Scenario({ sc }: { sc: any }) {
   const decide = (c: Choice) => {
     setChoice(c);
     const text = c === "recommended" ? `approved the recommended repair ${rec.route}` : c === "fallback" ? `chose the stored fallback ${fb.loop_id}` : "held the decision for further review";
-    workspace.log({ type: "simulation", actor: "user", simulated: true, ref: `SIM-${sc.id}-${run}`, text: `Simulation run ${run}: coordinator ${text}.`, review: c === "hold" ? "pending" : "approved" });
+    workspace.log({ type: "simulation", actor: "user", simulated: true, ref: `SIM-${sc.id}-${run}`, text: `${o.label} simulation run ${run}: coordinator ${text}.`, review: c === "hold" ? "pending" : "approved" });
   };
 
-  const graph = useMemo(() => graphAt(step, choice, sc, city), [step, choice, sc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const graph = useMemo(() => graphAt(step, choice, sc, city, o), [step, choice, sc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const showFallbackChoice = fb && !sameAsFallback;
 
   return (
     <div ref={scope}>
       <div className="grid xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] gap-8">
-        <Section title="Exchange graph" description={`Step ${step + 1} of ${steps.length}: ${steps[step].title}`}
+        <Section title={`${o.exchange} graph`} description={`Step ${step + 1} of ${steps.length}: ${steps[step].title}`}
           actions={
             <div className="flex flex-wrap gap-2">
               <button className="btn btn-primary btn-sm" disabled={playing || step === LAST} onClick={() => setPlaying(true)}><Icon name="play" size={14} /> Run</button>
@@ -119,7 +172,7 @@ function Scenario({ sc }: { sc: any }) {
               <p className="text-sm muted mt-1">The agents stop here. Nothing changes until a coordinator decides.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button className="btn btn-primary btn-sm" aria-pressed={choice === "recommended"} onClick={() => decide("recommended")}>Approve repair ({rec.route})</button>
-                <button className="btn btn-sm" aria-pressed={choice === "fallback"} onClick={() => decide("fallback")}>Use fallback ({city(fb.pairs[0])} ⇄ {city(fb.pairs[1])})</button>
+                {showFallbackChoice && <button className="btn btn-sm" aria-pressed={choice === "fallback"} onClick={() => decide("fallback")}>Use fallback ({city(fb.pairs[0])} ⇄ {city(fb.pairs[1])})</button>}
                 <button className="btn btn-sm" aria-pressed={choice === "hold"} onClick={() => decide("hold")}>Hold for review</button>
               </div>
               {choice && <p className="text-sm mt-3" style={{ color: "var(--ok)" }}>Recorded in the audit trail. <Link className="underline" href={`/audit?ref=SIM-${sc.id}-${run}`}>View</Link></p>}
@@ -140,6 +193,7 @@ function Scenario({ sc }: { sc: any }) {
               </li>
             ))}
           </ol>
+          {bad?.antibody && <p className="mt-4 text-xs muted">Recorded finding: {bad.antibody}.</p>}
         </Section>
       </div>
 
@@ -149,11 +203,11 @@ function Scenario({ sc }: { sc: any }) {
             <div className="grid lg:grid-cols-2 gap-6">
               <div className="canvas-dark p-4">
                 <p className="px-1 text-sm font-semibold" style={{ color: "#F7F6F0" }}>Before · as planned</p>
-                <ExchangeGraph idPrefix="sb" height={300} {...graphAt(0, null, sc, city)} label={`Before: ${sc.id} as planned`} />
+                <ExchangeGraph idPrefix="sb" height={300} {...graphAt(0, null, sc, city, o)} label={`Before: ${sc.id} as planned`} />
               </div>
               <div className="canvas-dark p-4">
                 <p className="px-1 text-sm font-semibold" style={{ color: "#F7F6F0" }}>After · {choice === "recommended" ? "repaired" : choice === "fallback" ? "fallback" : choice === "hold" ? "on hold" : "waiting for a decision"}</p>
-                <ExchangeGraph idPrefix="sa" height={300} {...graphAt(LAST + 1, choice, sc, city)} label="After the coordinator's choice" />
+                <ExchangeGraph idPrefix="sa" height={300} {...graphAt(LAST + 1, choice, sc, city, o)} label="After the coordinator's choice" />
               </div>
             </div>
             {choice && <Outcome choice={choice} sc={sc} city={city} />}
@@ -164,18 +218,19 @@ function Scenario({ sc }: { sc: any }) {
   );
 }
 
-function graphAt(step: number, choice: Choice | null, sc: any, city: (p: string) => string): { nodes: GNode[]; edges: GEdge[] } {
+function graphAt(step: number, choice: Choice | null, sc: Recorded, city: (p: string) => string, o: OrganView): { nodes: GNode[]; edges: GEdge[] } {
   const fams: any[] = sc.before.families;
   const rec = sc.prop.recommended, fb = sc.prop.fallback;
   const [fa, fbp] = sc.prop.failed_link;
+  const finding = sc.lab.results?.find?.((r: any) => r.result === "positive")?.antibody ?? "test";
   const after = step > 7;
   const nodes: GNode[] = fams.map((f) => ({ id: f.pair_id, title: f.city, sub: f.pair_id, state: "active" }));
-  const che = rec.pairs.find((p: string) => !fams.some((f) => f.pair_id === p));
-  if (step >= 5 || (after && choice === "recommended")) nodes.push({ id: che, title: city(che), sub: che, state: after && choice === "recommended" ? "joined" : "candidate", x: 280, y: 318 });
+  const joining = rec.pairs.find((p: string) => !fams.some((f) => f.pair_id === p)) as string | undefined;
+  if (joining && (step >= 5 || (after && choice === "recommended"))) nodes.push({ id: joining, title: city(joining), sub: joining, state: after && choice === "recommended" ? "joined" : "candidate", x: 280, y: 318 });
   const released = step >= 3 && !(after && choice !== "hold");
   nodes.forEach((n) => { if (released && sc.prop.released.includes(n.id)) n.state = "released"; });
-  if (after && choice === "recommended") nodes.forEach((n) => { if (rec.pairs.includes(n.id)) n.state = "joined"; else n.state = "dim"; });
-  if (after && choice === "fallback") nodes.forEach((n) => { n.state = fb.pairs.includes(n.id) ? "joined" : n.id === che ? n.state : "dim"; });
+  if (after && choice === "recommended") nodes.forEach((n) => { n.state = rec.pairs.includes(n.id) ? "joined" : "dim"; });
+  if (after && choice === "fallback" && fb) nodes.forEach((n) => { n.state = fb.pairs.includes(n.id) ? "joined" : n.id === joining ? n.state : "dim"; });
 
   const edges: GEdge[] = [];
   const ring = fams.map((f, i) => [f.pair_id, fams[(i + 1) % fams.length].pair_id]);
@@ -188,7 +243,7 @@ function graphAt(step: number, choice: Choice | null, sc: any, city: (p: string)
     if (after && choice !== "hold") state = isFailed ? "failed" : "inactive";
     if (after && choice === "recommended" && isFirst) state = "viable";
     if (after && choice === "hold") state = isFailed ? "failed" : isFirst ? "viable" : "pending";
-    edges.push({ from: a, to: b, state, label: isFailed && step >= 2 ? "DQ7 positive" : isFirst && step >= 1 && !(after && choice === "fallback") ? "negative" : undefined });
+    edges.push({ from: a, to: b, state, label: isFailed && step >= 2 ? `${finding} ${o.outcome.positive}` : isFirst && step >= 1 && !(after && choice === "fallback") ? o.outcome.negative : undefined });
   }
   if (step >= 5 && !(after && choice !== "recommended")) {
     rec.pairs.forEach((p: string, i: number) => {
@@ -196,18 +251,19 @@ function graphAt(step: number, choice: Choice | null, sc: any, city: (p: string)
       if (!edges.some((e) => e.from === p && e.to === to && e.state === "viable")) edges.push({ from: p, to, state: after ? "viable" : "proposed", label: `p ${rec.probs[i]}` });
     });
   }
-  if ((step >= 6 && !after) || (after && choice === "fallback")) {
-    edges.push({ from: fb.pairs[1], to: fb.pairs[0], state: after ? "viable" : "fallback", label: after ? "fallback" : undefined });
+  if (fb && ((step >= 6 && !after) || (after && choice === "fallback"))) {
+    if (!edges.some((e) => e.from === fb.pairs[1] && e.to === fb.pairs[0] && e.state === "proposed")) edges.push({ from: fb.pairs[1], to: fb.pairs[0], state: after ? "viable" : "fallback", label: after ? "fallback" : undefined });
     if (after) edges.push({ from: fb.pairs[0], to: fb.pairs[1], state: "viable" });
   }
   return { nodes, edges };
 }
 
-function Outcome({ choice, sc, city }: { choice: Choice; sc: any; city: (p: string) => string }) {
+function Outcome({ choice, sc, city }: { choice: Choice; sc: Recorded; city: (p: string) => string }) {
   const rec = sc.prop.recommended, fb = sc.prop.fallback;
   const planned = sc.before.loop.expected_tx;
   const after = choice === "recommended" ? rec.expected : choice === "fallback" ? fb.expected_tx : 0;
-  const waiting = choice === "recommended" ? [sc.prop.failed_link[1]] : choice === "fallback" ? sc.before.families.map((f: any) => f.pair_id).filter((p: string) => !fb.pairs.includes(p)) : sc.prop.released;
+  const all: string[] = sc.before.families.map((f: any) => f.pair_id);
+  const waiting = choice === "recommended" ? all.filter((p) => !rec.pairs.includes(p)) : choice === "fallback" ? all.filter((p) => !fb.pairs.includes(p)) : sc.prop.released;
   return (
     <dl className="mt-6 grid sm:grid-cols-3 gap-px rounded-[10px] overflow-hidden border" style={{ borderColor: "var(--line)", background: "var(--line)" }}>
       {[
@@ -217,8 +273,7 @@ function Outcome({ choice, sc, city }: { choice: Choice; sc: any; city: (p: stri
       ].map(([k, v]) => (
         <div key={k} className="p-4" style={{ background: "var(--surface)" }}><dt className="label">{k}</dt><dd className="mt-1 text-sm" style={{ color: "var(--ink-strong)" }}>{v}</dd></div>
       ))}
-      <p className="sm:col-span-3 p-3 text-xs muted" style={{ background: "var(--surface)" }}>Expected transplants are model estimates.</p>
+      <p className="sm:col-span-3 p-3 text-xs muted" style={{ background: "var(--surface)" }}>Expected transplants are model estimates. Synthetic data.</p>
     </dl>
   );
 }
-

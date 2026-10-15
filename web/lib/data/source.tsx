@@ -31,6 +31,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setVersion((v) => v + 1);
   }, []);
   useEffect(() => { check(); }, [check]);
+  // While offline, look for the API quietly in the background and switch back to live data once it answers.
+  useEffect(() => {
+    if (mode !== "offline") return;
+    const t = setInterval(async () => {
+      if (await apiReachable()) { setMode("live"); setVersion((v) => v + 1); }
+    }, 10_000);
+    return () => clearInterval(t);
+  }, [mode]);
 
   const value = useMemo<Ctx>(() => ({
     mode,
