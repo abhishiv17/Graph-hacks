@@ -28,6 +28,10 @@ class Pair:
     documents: dict = field(default_factory=dict)
     approval_age_days: int = 0
     phone_hash: str = ""
+    organ: str = "kidney"
+    liver: dict | None = None       # liver donors: what the shared pool sees (LiverProfile)
+    liver_ct: dict | None = None    # liver donors: CT-measured volumes, kept in the hospital graph
+    private: dict = field(default_factory=dict)   # hospital-only notes (never published to the exchange graph)
 
     def clashes(self, antigens: list[dict] | None = None) -> set[str]:
         names = {a["name"] for a in (antigens or self.antigens)}

@@ -1,5 +1,6 @@
 """Simulated HLA lab. The real crossmatch sees the donor's full typing, including loci the
-hospital never typed in advance, which is why a clear virtual test can still fail."""
+hospital never typed in advance, which is why a clear virtual test can still fail.
+(Each organ's test lives with the organ: swapnet/organs/.)"""
 from swapnet import config
 from swapnet.graph import db
 
@@ -14,5 +15,6 @@ def crossmatch(donor_pair: str, donor_hospital: str, patient_pair: str) -> dict:
     hits = [a for a in abs_ if a["s"] in typing]
     if hits:
         h = max(hits, key=lambda a: a["mfi"])
-        return {"result": "positive", "antibody": h["s"], "mfi": h["mfi"]}
+        return {"result": "positive", "antibody": h["s"], "mfi": h["mfi"],
+                "detail": f"lab crossmatch positive ({h['s']} antibody, not typed in advance)"}
     return {"result": "negative"}

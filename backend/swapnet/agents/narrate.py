@@ -5,6 +5,7 @@ translates the template with an instruction to add no facts. It never decides an
 """
 import os
 
+from swapnet import organs
 from swapnet.graph import db
 
 T = {
@@ -47,10 +48,13 @@ T = {
 }
 REL_HI = {"wife": "पत्नी", "husband": "पति", "mother": "माँ", "father": "पिता", "brother": "भाई", "sister": "बहन",
           "son": "बेटे", "daughter": "बेटी", "grandparent": "दादा-दादी", "grandchild": "पोते"}
+# The base text is written for kidney; organs override sentences in swapnet/organs/<organ>.py (`texts`).
 
 
 def family(f: dict, lang: str = "en") -> dict:
-    t = T.get(lang, T["en"])
+    # Each organ can reword sentences that differ (a liver donor gives part of their liver; the test is a donor check).
+    base = lang if lang in T else "en"
+    t = {**T[base], **organs.get(f.get("organ")).texts.get(base, {})}
     families = f.get("families") or 0
     rel = f.get("donor_relation") or "family member"
     if lang == "hi":

@@ -10,9 +10,10 @@ the pool after the plan is made. Every person is synthetic.
 """
 import yaml
 
-from swapnet import config
+from swapnet import config, organs
 from swapnet.agents import core
 from swapnet.gen.generator import Generator, Pair
+from swapnet.gen.liver import private_notes
 from swapnet.graph import db
 
 DOCS = ["hla_report", "blood_group_card", "relationship_proof", "id_proof", "consent"]
@@ -73,9 +74,69 @@ def _scripted() -> dict[str, Pair]:
     }
 
 
+def _liver(total: int, left: int, right_ok: bool = True) -> dict:
+    return {"liver_volume_ml": total, "left_lobe_ml": left, "right_lobe_ml": total - left, "right_lobe_ok": right_ok, "steatosis": False}
+
+
+LIVER_DOCS = ["ct_volumetry_report", "blood_group_card", "relationship_proof", "id_proof", "consent"]
+
+
+def scripted_liver() -> dict[str, Pair]:
+    """Liver story L-loop: Delhi P-0412 -> Chennai P-0433 -> Kochi P-0451 -> Delhi.
+
+    All three patients are heavy (95-105 kg), so few donors in the pool have a lobe big enough for them:
+    the liver version of a highly sensitised kidney patient. Delhi and Chennai clash by blood group (A/B
+    both ways, the commonest reason for Indian liver swaps). Kochi's blood groups fit, but his daughter's
+    right lobe is too small for him (GRWR 0.76%): a clash only liver has. Chennai's donor has no CT
+    volumetry yet, so the pool sees a formula estimate (right lobe 878 ml, just enough for Kochi: 0.84%).
+    The work-up measures 780 ml (0.74%) and the link fails. Delhi <-> Chennai stays possible as a 2-way
+    fallback. Every person is synthetic."""
+    def pr(pid, hosp, donor, patient, seen, ct, missing=(), age=10, surgical="ELIGIBLE"):
+        docs = {d: ("missing" if d in missing else "verified") for d in LIVER_DOCS}
+        d_ev = {"anatomy_review": "ELIGIBLE", "donor_evaluation": "ELIGIBLE"}
+        p_ev = {"recipient_evaluation": "ELIGIBLE", "surgical_review": surgical}
+        return Pair(pid, hosp, {**donor, "untyped_loci": []}, {**patient, "cpra": 0, **p_ev}, [], [], docs, age, f"ph-{hosp.lower()}-{pid[-4:]}",
+                    organ="liver", liver={**seen, **d_ev}, liver_ct=ct, private=private_notes(d_ev))
+    delhi_l = _liver(1300, 455)
+    chennai_seen, chennai_ct = {**_liver(1350, 472), "volumetry": "estimate"}, _liver(1180, 400)
+    kochi_l = _liver(1230, 430)
+    return {
+        "P-0412": pr("P-0412", "DEL",
+                     {"abo": "A", "sex": "M", "relation": "son", "age_band": "25-34", "bmi": 26.3, "height_cm": 178, "weight_kg": 83},
+                     {"abo": "B", "sex": "M", "age_band": "45-59", "height_cm": 174, "weight_kg": 95.0, "meld": 18},
+                     {**delhi_l, "volumetry": "ct"}, delhi_l, age=16),
+        "P-0433": pr("P-0433", "CHE",
+                     {"abo": "B", "sex": "M", "relation": "brother", "age_band": "35-44", "bmi": 26.4, "height_cm": 172, "weight_kg": 78},
+                     {"abo": "A", "sex": "M", "age_band": "45-59", "height_cm": 176, "weight_kg": 98.0, "meld": 22},
+                     chennai_seen, chennai_ct, missing=("ct_volumetry_report",), age=6, surgical="REVIEW_REQUIRED"),
+        "P-0451": pr("P-0451", "COK",
+                     {"abo": "O", "sex": "F", "relation": "daughter", "age_band": "25-34", "bmi": 25.0, "height_cm": 166, "weight_kg": 69},
+                     {"abo": "B", "sex": "M", "age_band": "45-59", "height_cm": 178, "weight_kg": 105.0, "meld": 27},
+                     {**kochi_l, "volumetry": "ct"}, kochi_l, age=12),
+    }
+
+
+# Families each organ's demo story adds once its background pool is loaded (kidney's are timed separately below).
+STORY_FAMILIES = {"liver": scripted_liver}
+
+
 def settings() -> dict:
     p = config.DATA / "scenarios" / "s0031.yaml"
     return yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {"seed": 7, "background_pairs": 150}
+
+
+def _load_pool(org: organs.Organ, n: int, seed: int) -> list:
+    from swapnet.graph import publish
+    codes = org.hospitals()
+    pool = org.background(n, codes, seed)
+    for pr in pool:
+        publish.write_private(pr)
+        publish.publish(pr, build_edges=False)
+    for pr in pool:
+        publish.build(pr.pair_id, org.name)
+    db.event("Exchange", f"Synthetic {org.name} pool loaded: {n} pairs across {len(codes)} hospitals. "
+                         "Synthetic demo data, no real patients.", "info")
+    return pool
 
 
 def load(seed: int | None = None, background: int | None = None, plan: bool = True) -> dict:
@@ -86,17 +147,8 @@ def load(seed: int | None = None, background: int | None = None, plan: bool = Tr
     db.reset_seq()
     db.setup_schema()
     core.ensure_agents()
-    codes = [h["code"] for h in config.hospitals()["hospitals"]]
-    pool = Generator(seed).pairs(background, codes, start=1000)
+    _load_pool(organs.get("kidney"), background, seed)
     sc = scripted()
-    from swapnet.graph import publish
-    for pr in pool:
-        publish.write_private(pr)
-        publish.publish(pr, build_edges=False)
-    for pr in pool:
-        publish.build(pr.pair_id)
-    db.event("Exchange", f"Synthetic pool loaded: {background} pairs across {len(codes)} hospitals. "
-                         "Synthetic demo data, no real patients.", "info")
     out = {"seed": seed, "pairs": background + 3}
     if plan:
         # Earlier weeks: plan #41 is already out for offers and lab tests.
@@ -105,6 +157,13 @@ def load(seed: int | None = None, background: int | None = None, plan: bool = Tr
             _settle_earlier(loop["loop_id"])
     for code in ("P-0154", "P-0211", "P-0388"):
         core.IntakeAgent(sc[code].hospital).add_pair(sc[code])
+    # Other organs' pools join after the kidney story is in place, so it plays out exactly as before.
+    for name, o in (s.get("organs") or {}).items():
+        _load_pool(organs.get(name), o["background_pairs"], o["seed"])
+        story = STORY_FAMILIES.get(name, dict)()
+        for pr in story.values():
+            core.IntakeAgent(pr.hospital).add_pair(pr)
+        out["pairs"] += o["background_pairs"] + len(story)
     if plan:
         out["plan"] = core.MatchingAgent().run_plan(first="P-0154")
     return out

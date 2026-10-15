@@ -9,8 +9,8 @@ import threading
 import time
 import uuid
 
-from swapnet import config
-from swapnet.agents import lab, narrate
+from swapnet import config, organs
+from swapnet.agents import narrate
 from swapnet.graph import db, publish
 from swapnet.optimiser.solver import Candidate, best_fallback, expected_transplants, rank_repairs, solve
 
@@ -18,6 +18,12 @@ DAY_MS = 86_400_000
 # Serialises graph writes between API requests and the background watch.
 LOCK = threading.RLock()
 COORDINATOR = "Exchange coordinator (person)"
+# Loop statuses that may still send tests to a lab.
+TESTABLE = ("selected", "offered", "testing")
+
+
+class LoopClosed(ValueError):
+    """An action that only makes sense on a live loop was asked of a broken, replaced or finished one."""
 
 
 def _id(prefix: str) -> str:
@@ -63,12 +69,24 @@ def _route(pairs: list[str]) -> str:
     return " ⇄ ".join(cities) if len(cities) == 2 else " → ".join(cities)
 
 
+def _organs(pair_ids: list[str]) -> dict[str, str]:
+    rows = db.raw("MATCH (p:Pair) WHERE p.pair_id IN $ids RETURN p.pair_id AS p, p.organ AS o", {"ids": list(pair_ids)})
+    return {r["p"]: r["o"] or organs.DEFAULT for r in rows}
+
+
+def _loop_organ(loop_id: str) -> organs.Organ:
+    r = db.raw("MATCH (l:Loop {loop_id: $l}) RETURN l.organ AS o", {"l": loop_id})
+    return organs.get(r[0]["o"] if r else None)
+
+
 def _priority_bonus() -> dict[str, float]:
+    """Each organ scores its own patients (blood group O and cPRA for kidney, MELD for liver); a failed
+    link before raises anyone's priority."""
     b = config.policies()["matching"]["priority_bonus"]
     rows = db.raw("MATCH (p:Pair {status: 'waiting'})-[:HAS_PATIENT]->(r:Patient) "
-                  "RETURN p.pair_id AS id, r.abo AS abo, r.cpra AS cpra, coalesce(p.failed_count, 0) AS f")
-    return {r["id"]: (b["blood_o_patient"] if r["abo"] == "O" else 0) + (b["high_cpra"] if r["cpra"] > 85 else 0)
-            + (b["failed_before"] if r["f"] > 0 else 0) for r in rows}
+                  "RETURN p.pair_id AS id, p.organ AS organ, r.abo AS abo, r.cpra AS cpra, r.meld AS meld, "
+                  "coalesce(p.failed_count, 0) AS f")
+    return {r["id"]: organs.get(r["organ"]).priority(r, b) + (b["failed_before"] if r["f"] > 0 else 0) for r in rows}
 
 
 def _with_fallbacks(rows: list[dict]) -> list[Candidate]:
@@ -108,7 +126,8 @@ def _offer_accepted(loop_id: str, pair_id: str) -> None:
               SET e.offer_accepted = true,
                   e.p_success = round(CASE WHEN p > 0.99 THEN 0.99 ELSE p END * 100) / 100.0,
                   e.reasons = e.reasons + ['offer accepted: no refusal risk left on this link']""",
-           {"a": link["from_pair"], "b": link["to_pair"], "r": config.params()["failure"]["offer_refusal"]})
+           {"a": link["from_pair"], "b": link["to_pair"],
+            "r": organs.get(link.get("organ")).params()["failure"]["offer_refusal"]})
 
 
 def _refresh_loop(loop_id: str) -> None:
@@ -136,18 +155,26 @@ def _refresh_loop(loop_id: str) -> None:
            {"l": loop_id, "p": round(c.p_all, 2), "e": round(expected_transplants(c), 2)})
 
 
-def _next_loop_id() -> int:
-    r = db.raw("MATCH (l:Loop) WHERE l.loop_id STARTS WITH 'S-' RETURN count(l) AS n")
+def _next_loop_id(prefix: str = "S-") -> int:
+    """Kidney and liver loops are numbered separately (S-0031…, L-0031…), so one organ's plan never
+    renumbers the other's."""
+    r = db.raw("MATCH (l:Loop) WHERE l.loop_id STARTS WITH $p RETURN count(l) AS n", {"p": prefix})
     return 31 + (r[0]["n"] if r else 0)
 
 
 def _save(chosen: list[Candidate], run_id: str, policy: str, meta: dict, first: str | None = None) -> list[dict]:
-    if first:
-        chosen = sorted(chosen, key=lambda c: first not in c.pairs)
-    n0 = _next_loop_id()
+    organ = _organs([p for c in chosen for p in c.pairs])
+    order = organs.names()
+    # Organs in registry order (each in the order the optimiser returned its loops); `first` leads its organ.
+    chosen = sorted(chosen, key=lambda c: (order.index(organ.get(c.pairs[0], organs.DEFAULT)), bool(first) and first not in c.pairs))
+    nxt: dict[str, int] = {}
     loops = []
-    for i, c in enumerate(chosen):
-        loops.append({"loop_id": f"S-{n0 + i:04d}", "kind": f"{len(c.pairs)}-way", "pairs": c.pairs,
+    for c in chosen:
+        o = organ.get(c.pairs[0], organs.DEFAULT)
+        prefix = organs.get(o).prefix
+        n = nxt.setdefault(prefix, _next_loop_id(prefix))
+        nxt[prefix] = n + 1
+        loops.append({"loop_id": f"{prefix}{n:04d}", "kind": f"{len(c.pairs)}-way", "organ": o, "pairs": c.pairs,
                       "p_success": round(c.p_all, 2), "expected_tx": round(c.expected, 2),
                       "has_fallback": bool(c.fallback), "fallback": c.fallback})
     db.run("Q08_save_plan", {"run_id": run_id, "policy": policy, "solve_ms": meta["solve_ms"],
@@ -159,13 +186,13 @@ def _save(chosen: list[Candidate], run_id: str, policy: str, meta: dict, first: 
             fid = l["loop_id"] + "-FB"
             db.raw("""MATCH (a:Pair {pair_id: $x})-[e1:CAN_GIVE_TO]->(b:Pair {pair_id: $y})-[e2:CAN_GIVE_TO]->(a)
                       MATCH (main:Loop {loop_id: $main})
-                      CREATE (fb:Loop {loop_id: $fid, kind: '2-way', organ: 'kidney', status: 'fallback',
+                      CREATE (fb:Loop {loop_id: $fid, kind: '2-way', organ: $organ, status: 'fallback',
                                        p_success: round(e1.p_success * e2.p_success * 100) / 100.0,
                                        expected_tx: round(2 * e1.p_success * e2.p_success * 100) / 100.0,
                                        has_fallback: false, created_at: timestamp()})
                       CREATE (fb)-[:FALLBACK_FOR {trigger: $trigger}]->(main)
                       CREATE (a)-[:IN_LOOP {pos: 0}]->(fb), (b)-[:IN_LOOP {pos: 1}]->(fb)""",
-                   {"x": x, "y": y, "main": l["loop_id"], "fid": fid,
+                   {"x": x, "y": y, "main": l["loop_id"], "fid": fid, "organ": l["organ"],
                     "trigger": [p for p in l["pairs"] if p not in (x, y)][0]})
     return loops
 
@@ -194,16 +221,17 @@ class IntakeAgent:
     def respond(self, offer_id: str) -> str:
         r = db.raw("""MATCH (o:Offer {offer_id: $o})-[:TO]->(p:Pair), (o)-[:FOR]->(l:Loop)
                       MATCH (q:Pair)-[e:CAN_GIVE_TO]->(p) WHERE (q)-[:IN_LOOP]->(l)
-                      RETURN p.pair_id AS pair, p.approval_state AS ap, e.vxm AS vxm, l.loop_id AS loop""", {"o": offer_id})
+                      RETURN p.pair_id AS pair, p.approval_state AS ap, e.vxm AS vxm, l.loop_id AS loop, l.organ AS organ""", {"o": offer_id})
         if not r:
             return "pending"
         r = r[0]
+        org = organs.get(r["organ"])
         if r["ap"] == "rejected":
             resp, why = "decline", "committee rejected this pair"
         elif r["vxm"] == "risk" and self.policy["hold_if_vxm_risk"]:
-            resp, why = "hold", "incoming link has an untyped locus; lab test first"
+            resp, why = "hold", f"{org.hold_reason}; {org.test_name} first"
         else:
-            resp, why = "accept", "policy checks passed; lab crossmatch requested"
+            resp, why = "accept", f"policy checks passed; {org.test_name} requested"
         db.raw("MATCH (o:Offer {offer_id: $o}) SET o.response = $r, o.reason = $w, o.at = timestamp()",
                {"o": offer_id, "r": resp, "w": why})
         decide(self.name, resp, why, [("Offer", "offer_id", offer_id), ("Loop", "loop_id", r["loop"])], pair_id=r["pair"])
@@ -216,12 +244,13 @@ class IntakeAgent:
         """A held offer waits for the lab test on the link into this pair. Called once that test is negative."""
         held = db.raw("""MATCH (o:Offer {response: 'hold'})-[:FOR]->(:Loop {loop_id: $l}), (o)-[:TO]->(:Pair {pair_id: $p})
                          RETURN o.offer_id AS o""", {"l": loop_id, "p": pair_id})
+        org = organs.get((db.raw("MATCH (l:Loop {loop_id: $l}) RETURN l.organ AS o", {"l": loop_id}) or [{}])[0].get("o"))
         for h in held:
-            why = "held until the lab test; crossmatch came back negative"
+            why = f"held until the {org.test_name}, which has now passed"
             db.raw("MATCH (o:Offer {offer_id: $o}) SET o.response = 'accept', o.reason = $w, o.at = timestamp()",
                    {"o": h["o"], "w": why})
             decide(self.name, "accept", why, [("Offer", "offer_id", h["o"]), ("Loop", "loop_id", loop_id)], pair_id=pair_id)
-            db.event(self.name, f"Hold released for {pair_id} in {loop_id}: lab test negative, offer accepted.", "ok")
+            db.event(self.name, f"Hold released for {pair_id} in {loop_id}: {org.test_name} passed, offer accepted.", "ok")
         if held:
             _refresh_loop(loop_id)
         return bool(held)
@@ -237,57 +266,67 @@ class CrossmatchCoordinator:
     name = "Crossmatch coordinator"
 
     def request(self, loop_id: str, carry_over: dict | None = None) -> None:
-        """One lab test per link. Links already tested negative carry over (no repeat test)."""
+        """One test per link, whatever the organ's test is (crossmatch, CT volumetry).
+        Links already tested negative carry over (no repeat test)."""
         links = db.run("Q13_explain_loop", {"loop_id": loop_id})
         carry_over = carry_over or {}
         for l in links:
+            org = organs.get(l.get("organ"))
             key = (l["from_pair"], l["to_pair"])
             tid = f"X-{loop_id}-{l['from_pair'][-4:]}-{l['to_pair'][-4:]}"
             result = carry_over.get(key, "pending")
             db.raw("""MATCH (a:Pair {pair_id: $a}), (b:Pair {pair_id: $b}), (lp:Loop {loop_id: $l})
-                      CREATE (x:Crossmatch {test_id: $t, result: $res, lab: $lab, requested_at: timestamp(),
+                      CREATE (x:Crossmatch {test_id: $t, kind: $kind, result: $res, lab: $lab, requested_at: timestamp(),
                                              due_at: timestamp() + 2 * $day})
                       CREATE (x)-[:DONOR_OF]->(a), (x)-[:PATIENT_OF]->(b), (x)-[:IN]->(lp)""",
-                   {"a": l["from_pair"], "b": l["to_pair"], "l": loop_id, "t": tid, "res": result,
-                    "lab": _code(l["to_pair"]) + "-LAB", "day": DAY_MS})
+                   {"a": l["from_pair"], "b": l["to_pair"], "l": loop_id, "t": tid, "res": result, "kind": org.test_kind,
+                    "lab": _code(org.lab_pair(l["from_pair"], l["to_pair"])) + "-LAB", "day": DAY_MS})
         db.raw("MATCH (l:Loop {loop_id: $l}) SET l.status = 'testing'", {"l": loop_id})
 
     def run_lab(self, loop_id: str) -> list[dict]:
-        """Send pending tests to the (simulated) lab and act on the results."""
+        """Send pending tests to the (simulated) lab and act on the results. A loop that is broken, replaced
+        or past testing gets no more tests."""
+        st = db.raw("MATCH (l:Loop {loop_id: $l}) RETURN l.status AS s", {"l": loop_id})
+        if not st:
+            raise LookupError(f"no loop {loop_id} in the graph")
+        if st[0]["s"] not in TESTABLE:
+            raise LoopClosed(f"{loop_id} is {st[0]['s']}: no tests are sent for it")
+        org = _loop_organ(loop_id)
         tests = db.raw("""MATCH (x:Crossmatch {result: 'pending'})-[:IN]->(:Loop {loop_id: $l})
                           MATCH (x)-[:DONOR_OF]->(a:Pair), (x)-[:PATIENT_OF]->(b:Pair)
                           RETURN x.test_id AS t, a.pair_id AS a, b.pair_id AS b""", {"l": loop_id})
         out = []
         for t in tests:
-            res = lab.crossmatch(t["a"], _code(t["a"]), t["b"])
+            res = org.run_test(t["a"], _code(t["a"]), t["b"])
             out.append({**t, **res})
-            self.record(t["t"], res["result"], res.get("antibody"), res.get("mfi"))
+            self.record(t["t"], res["result"], res.get("antibody"), res.get("mfi"), res.get("detail"))
             if res["result"] == "positive":
                 break  # the loop is broken; the rest of its tests are moot
         return out
 
-    def record(self, test_id: str, result: str, antibody: str | None = None, mfi: int | None = None) -> None:
+    def record(self, test_id: str, result: str, antibody: str | None = None, mfi: int | None = None,
+               detail: str | None = None) -> None:
         r = db.raw("""MATCH (x:Crossmatch {test_id: $t})-[:IN]->(l:Loop)
                       MATCH (x)-[:DONOR_OF]->(a:Pair), (x)-[:PATIENT_OF]->(b:Pair)
                       SET x.result = $res, x.antibody = $ab, x.at = timestamp()
-                      RETURN l.loop_id AS loop, a.pair_id AS a, b.pair_id AS b""",
+                      RETURN l.loop_id AS loop, l.organ AS organ, a.pair_id AS a, b.pair_id AS b""",
                    {"t": test_id, "res": result, "ab": antibody})[0]
-        route = f"{_city(r['a'])} → {_city(r['b'])}"
+        org = organs.get(r["organ"])
+        link = f"{r['a']} → {r['b']}"
         if result == "negative":
-            # A negative lab test is strong evidence: only refusal or withdrawal can still stop this link.
+            # A passed test is strong evidence: only refusal or withdrawal can still stop this link.
             db.raw("""MATCH (:Pair {pair_id: $a})-[e:CAN_GIVE_TO]->(:Pair {pair_id: $b})
                       SET e.p_success = 0.95, e.vxm = 'clear', e.lab_negative = true,
-                          e.reasons = [r IN e.reasons WHERE NOT r STARTS WITH 'lab ' AND NOT r CONTAINS 'not typed'] + ['lab crossmatch negative']""",
-                   {"a": r["a"], "b": r["b"]})
-            db.event(self.name, f"{_city(r['b'])} lab: negative crossmatch on {route} ({r['a']} → {r['b']}).", "ok")
+                          e.reasons = [r IN e.reasons WHERE none(m IN $markers WHERE r CONTAINS m)] + [$done]""",
+                   {"a": r["a"], "b": r["b"], "markers": list(org.risk_reason_markers), "done": org.passed_reason})
+            db.event(self.name, org.passed_event(_city(r["a"]), _city(r["b"]), f"{_city(r['a'])} → {_city(r['b'])}", link), "ok")
             _refresh_loop(r["loop"])
             intake_for(r["b"]).resolve_hold(r["loop"], r["b"])
             self._maybe_complete(r["loop"])
             return
-        db.event(self.name, f"{_city(r['b'])} lab: positive crossmatch on link {r['a']} → {r['b']}"
-                            f" ({antibody} antibody, MFI {mfi}). Loop paused, matching agent notified.", "fail")
-        MatchingAgent().on_failure(r["loop"], r["a"], r["b"], "positive_xm",
-                                   f"lab crossmatch positive ({antibody} antibody, not typed in advance)", test_id)
+        res = {"antibody": antibody, "mfi": mfi, "detail": detail or f"{org.test_name} ruled this link out"}
+        db.event(self.name, org.failed_event(_city(r["a"]), _city(r["b"]), link, res), "fail")
+        MatchingAgent().on_failure(r["loop"], r["a"], r["b"], org.failure_cause, res["detail"], test_id)
 
     def check_overdue(self, now: int | None = None) -> list[str]:
         """Pending tests past their due date get one reminder to the lab; a day later the coordinator is told."""
@@ -316,7 +355,7 @@ class CrossmatchCoordinator:
                       {"l": loop_id})[0]["n"]
         if left == 0:
             db.raw("MATCH (l:Loop {loop_id: $l}) SET l.status = 'committee'", {"l": loop_id})
-            db.event(self.name, f"All lab tests negative for {loop_id}. Handed to the committee clerk.", "ok")
+            db.event(self.name, f"{_loop_organ(loop_id).done_text} for {loop_id}. Handed to the committee clerk.", "ok")
 
 
 # ---------------------------------------------------------------- matching agent
@@ -327,26 +366,51 @@ class MatchingAgent:
     def run_plan(self, failure_aware: bool = True, first: str | None = None, max_loop: int = 3) -> dict:
         with db.track() as tr:
             comps = db.run("Q07_components")
-            rows = db.run("Q04_two_way_loops", {"ids": None})
+            rows = db.run("Q04_two_way_loops", {"ids": None, "organ": None})
             if max_loop >= 3:
-                rows += db.run("Q05_three_way_loops", {"ids": None})
+                rows += db.run("Q05_three_way_loops", {"ids": None, "organ": None})
             cands = _with_fallbacks(rows)
-            res = solve(cands, _priority_bonus(), failure_aware=failure_aware)
+            res = self._solve_by_organ(cands, _priority_bonus(), failure_aware)
             run_id = f"#{self._run_no()}"
             loops = _save(res["chosen"], run_id, "failure-aware" if failure_aware else "failure-blind", res, first)
         db.event(self.name, f"Plan {run_id}: {len(comps)} component(s), {res['candidates']} candidate loops found in "
                             f"the graph, {len(loops)} chosen in {res['solve_ms'] / 1000:.1f} s"
                             f"{' · optimal' if res['optimal'] else ''}. Expected {res['expected_tx']} of "
-                            f"{res['planned_tx']} transplants.", "plan")
+                            f"{res['planned_tx']} transplants{self._organ_split(res['by_organ'])}.", "plan")
         decide(self.name, "select_plan", f"Optimiser chose {len(loops)} loops by expected transplants, then priority.",
                [("Plan", "run_id", run_id)])
         for l in loops:
             self.offer(l["loop_id"])
-        return {"run_id": run_id, "loops": loops, **{k: res[k] for k in ("optimal", "solve_ms", "expected_tx", "planned_tx", "candidates")},
+        return {"run_id": run_id, "loops": loops, **{k: res[k] for k in ("optimal", "solve_ms", "expected_tx", "planned_tx", "candidates", "by_organ")},
                 "components": len(comps), "queries": tr.ran}
+
+    @staticmethod
+    def _organ_split(by: dict) -> str:
+        used = [o for o in by if by[o]["candidates"]]
+        if len(used) < 2:
+            return ""
+        return " (" + ", ".join(f"{o}: {by[o]['loops']} loops, {round(by[o]['expected_tx'], 1)} of {by[o]['planned_tx']}"
+                                for o in used) + ")"
 
     def _run_no(self) -> int:
         return 41 + db.raw("MATCH (p:Plan) RETURN count(p) AS n")[0]["n"]
+
+    @staticmethod
+    def _solve_by_organ(cands: list[Candidate], bonus: dict[str, float], failure_aware: bool = True) -> dict:
+        """Loops of different organs never share a family (links never cross organs), so each organ is its
+        own optimisation. Solving them apart keeps one organ's plan independent of another's pool."""
+        organ = _organs([p for c in cands for p in c.pairs])
+        names = organs.names()
+        parts = [solve([c for c in cands if organ.get(c.pairs[0], organs.DEFAULT) == o], bonus, failure_aware=failure_aware)
+                 for o in names]
+        return {"chosen": [c for r in parts for c in r["chosen"]],
+                "optimal": all(r["optimal"] for r in parts),
+                "solve_ms": sum(r["solve_ms"] for r in parts),
+                "expected_tx": round(sum(r["expected_tx"] for r in parts), 2),
+                "planned_tx": sum(r["planned_tx"] for r in parts),
+                "candidates": sum(r["candidates"] for r in parts),
+                "by_organ": {o: {k: r[k] for k in ("expected_tx", "planned_tx", "candidates")} | {"loops": len(r["chosen"])}
+                             for o, r in zip(names, parts)}}
 
     def offer(self, loop_id: str, carry_over: dict | None = None) -> None:
         n = db.run("Q09_offer_loop", {"loop_id": loop_id})
@@ -374,9 +438,9 @@ class MatchingAgent:
             released = db.run("Q10_record_failure", {"donor_pair": donor_pair, "patient_pair": patient_pair,
                                                      "loop_id": loop_id, "cause": cause, "detail": detail,
                                                      "test_id": test_id, "failure_id": fid})[0]["released"]
-            # The lab now knows the donor's full typing: type it and rebuild only that donor's links.
-            self._learn_typing(donor_pair)
-            db.run("Q17_failure_priors", {"lab": _code(patient_pair) + "-LAB"})
+            # The test revealed what the pool didn't know (full typing, measured liver): learn it and
+            # rebuild only that donor's links.
+            _loop_organ(loop_id).learn_after_failure(donor_pair, patient_pair, _code)
             fallbacks = db.run("Q12_fallbacks_for", {"loop_id": loop_id})
             rows = _dedupe(db.run("Q11_local_repair_candidates", {"released": released}))
             cands = _with_fallbacks(rows)
@@ -415,20 +479,6 @@ class MatchingAgent:
         db.raw("MATCH (p:Pair {pair_id: $p}) SET p.priority = coalesce(p.priority, 0) + 0.2", {"p": patient_pair})
         return proposal
 
-    def _learn_typing(self, donor_pair: str) -> None:
-        code = _code(donor_pair)
-        full = db.raw("MATCH (:Pair {pair_id: $id})-[:DONOR]->(d:Person) RETURN d.full_typing AS t",
-                      {"id": donor_pair}, graph=config.hospital_graph(code))[0]["t"]
-        db.raw("MATCH (:Pair {pair_id: $id})-[e:CAN_GIVE_TO {status: 'live'}]->() "
-               "WHERE coalesce(e.lab_negative, false) = false DELETE e", {"id": donor_pair})
-        db.raw("""MATCH (:Pair {pair_id: $id})-[:HAS_DONOR]->(d:Donor)
-                  SET d.untyped_loci = []
-                  WITH d UNWIND $dq AS n
-                  MERGE (h:HLAAntigen {name: n}) ON CREATE SET h.locus = 'DQ'
-                  MERGE (d)-[:HAS_ANTIGEN]->(h)""",
-               {"id": donor_pair, "dq": [a for a in full if a.startswith("DQ")]})
-        publish.build(donor_pair)
-
     def _why(self, c: Candidate) -> list[str]:
         out = []
         for i, a in enumerate(c.pairs):
@@ -450,13 +500,17 @@ class MatchingAgent:
         if not t:
             return {"error": "task not open"}
         prop = json.loads(t[0]["p"])
+        alt = choice.split(":")
+        if choice not in ("recommended", "fallback") and not (
+                len(alt) == 2 and alt[0] == "alt" and alt[1].isdigit() and int(alt[1]) < len(prop["alternatives"])):
+            return {"error": f"unknown choice {choice!r}: use recommended, fallback or alt:<n>"}
         pick = prop["recommended"] if choice == "recommended" else (
             prop["fallback"] and {"pairs": prop["fallback"]["pairs"], "probs": None} if choice == "fallback"
             else prop["alternatives"][int(choice.split(":")[1])])
         if not pick:
             return {"error": "nothing to approve"}
         if choice == "fallback":
-            rows = db.run("Q04_two_way_loops", {"ids": pick["pairs"]})
+            rows = db.run("Q04_two_way_loops", {"ids": pick["pairs"], "organ": None})
             rows = [r for r in rows if set(r["pairs"]) == set(pick["pairs"])]
         else:
             rows = [{"pairs": pick["pairs"], "probs": pick["probs"]}]

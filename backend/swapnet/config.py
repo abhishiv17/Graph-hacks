@@ -19,8 +19,16 @@ def hospital_graph(code: str) -> str:
 
 
 @lru_cache
+def param_file(name: str) -> dict:
+    return yaml.safe_load((DATA / "params" / name).read_text(encoding="utf-8"))
+
+
 def params() -> dict:
-    return yaml.safe_load((DATA / "params" / "india_kidney.yaml").read_text(encoding="utf-8"))
+    return param_file("india_kidney.yaml")
+
+
+def liver_params() -> dict:
+    return param_file("india_liver.yaml")
 
 
 @lru_cache
@@ -42,4 +50,16 @@ def edge_params() -> dict:
         "xm_high": f["xm_positive_high_cpra"],
         "untyped_extra": f["untyped_dq_extra"],
         "refusal": f["offer_refusal"],
+    }
+
+
+def liver_edge_params() -> dict:
+    p = liver_params()
+    f = p["failure"]
+    return {
+        "grwr_min": p["rules"]["grwr_min"], "remnant_min": p["rules"]["remnant_min"],
+        "workup": f["workup"], "estimate": f["estimate"], "estimate_borderline": f["estimate_borderline"],
+        "margin": f["borderline_margin"], "refusal": f["offer_refusal"],
+        "ill_base": f["too_ill_base"], "ill_per_meld": f["too_ill_per_meld"], "ill_max": f["too_ill_max"],
+        "urgent_meld": p["urgent_meld"],
     }
