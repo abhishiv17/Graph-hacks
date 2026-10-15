@@ -8,8 +8,8 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
-from swapnet import organs, programs, scenario
-from swapnet.agents import core
+from swapnet import access, organs, programs, scenario
+from swapnet.agents import ask, core
 from swapnet.gen.generator import Pair
 from swapnet.graph import db, publish
 from swapnet.optimiser.solver import Candidate, solve
@@ -224,6 +224,57 @@ def lab_crossmatch_preview(donor_pair: str, donor_hospital: str, patient_pair: s
         return err
     o = db.raw("MATCH (p:Pair {pair_id: $p}) RETURN p.organ AS o", {"p": donor_pair})
     return organs.get(o[0]["o"] if o else None).run_test(donor_pair, donor_hospital, patient_pair)
+
+
+def _box() -> ask.ToolBox:
+    """The multi-hop tools Ask KindRed uses, run as the exchange coordinator (a local MCP client is trusted)."""
+    uid = access.policy()["default_user"]
+    return ask.ToolBox(access.Viewer(uid, access.policy()["users"][uid]))
+
+
+def _graph_tool(fn):
+    try:
+        return _q(fn)
+    except ask.NotInGraph as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def withdrawal_impact(pair_id: str) -> dict:
+    """What breaks if a family withdraws: its live loops, the other families affected, and whether each loop's
+    stored fallback survives without it."""
+    return _graph_tool(lambda: _box().withdrawal_impact(pair_id))
+
+
+@mcp.tool()
+def reachable_within(pair_id: str, hops: int = 2) -> dict:
+    """Multi-hop reach: waiting families of the same program a family's donor can reach in at most `hops`
+    donations (1-3) over live links, with the shortest route to each."""
+    return _graph_tool(lambda: _box().reachable_within(pair_id, hops))
+
+
+@mcp.tool()
+def connection_path(from_pair: str, to_pair: str) -> dict:
+    """The shortest chain of compatibility links from one family's donor to another family's patient."""
+    return _graph_tool(lambda: _box().connection_path(from_pair, to_pair))
+
+
+@mcp.tool()
+def bridge_families(limit: int = 10, organ: str | None = None) -> dict:
+    """Waiting families whose withdrawal would break the most possible loops (betweenness centrality)."""
+    return _graph_tool(lambda: _box().bridge_families(limit, organ))
+
+
+@mcp.tool()
+def failure_memory(pair_id: str) -> dict:
+    """Links remembered as failed around one family, with the test that proved each; never proposed again."""
+    return _graph_tool(lambda: _box().failure_memory(pair_id))
+
+
+@mcp.tool()
+def recall(ids: list[str]) -> dict:
+    """Agent memory: earlier verified Ask KindRed answers about these families or loops, newest first, dated."""
+    return _graph_tool(lambda: _box().recall(ids))
 
 
 @mcp.tool()

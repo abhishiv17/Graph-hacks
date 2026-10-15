@@ -13,6 +13,10 @@ from swapnet import access, config, organs, programs, scenario
 from swapnet.access import Viewer
 from contextlib import asynccontextmanager
 
+import anthropic
+import httpx
+
+from swapnet.agents import ask as ask_agent
 from swapnet.agents import core, watch
 from swapnet.graph import db
 
@@ -444,6 +448,52 @@ def decline(task_id: str, body: Decline, v: Viewer = Depends(access.viewer)):
     if "error" in r:
         raise HTTPException(400, r["error"])
     return r
+
+
+class AskBody(BaseModel):
+    question: str
+    history: list[dict] = []
+
+
+@app.get("/api/ask/status")
+def ask_status():
+    """Which model answers (Claude, or a local model through Ollama) and whether it is reachable right now."""
+    return {**ask_agent.status(), "tools": [t["name"] for t in ask_agent.TOOLS]}
+
+
+@app.get("/api/ask/history")
+def ask_history(v: Viewer = Depends(access.viewer)):
+    """Answered questions remembered in the graph (Question nodes) that this viewer may see."""
+    with db.track() as tr:
+        rows = ask_agent.recent(v)
+    return {"questions": rows, "queries": tr.ran}
+
+
+@app.post("/api/ask")
+def ask(body: AskBody, v: Viewer = Depends(access.viewer)):
+    """Ask KindRed: a model (Claude or a local one) answers from the graph through a fixed set of read-only tools."""
+    q = body.question.strip()
+    if not q:
+        raise HTTPException(400, "a question is required")
+    if len(q) > 2000:
+        raise HTTPException(400, "keep the question under 2000 characters")
+    st = ask_agent.status()
+    if not st["enabled"]:
+        raise HTTPException(503, f"Ask KindRed's model ({st['model']}) isn't available: {st['how']}")
+    try:
+        return ask_agent.ask(q, v, body.history)
+    except httpx.TimeoutException:
+        raise HTTPException(504, "the local model took too long to answer; try a narrower question")
+    except httpx.HTTPError as e:
+        raise HTTPException(503, f"couldn't reach the local model through Ollama: {e}")
+    except anthropic.AuthenticationError:
+        raise HTTPException(503, "the Anthropic API key was rejected; check ANTHROPIC_API_KEY in .env")
+    except anthropic.RateLimitError:
+        raise HTTPException(429, "the model is rate limited right now; try again in a minute")
+    except anthropic.APIConnectionError:
+        raise HTTPException(503, "couldn't reach the Anthropic API")
+    except anthropic.APIStatusError as e:
+        raise HTTPException(502, f"model error {e.status_code}: {e.message}")
 
 
 @app.get("/api/agents")

@@ -8,6 +8,12 @@ services:
       FALKORDB_HOST: falkordb
       FALKORDB_PORT: "6379"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Ask KindRed's model: "ollama" (local, free) or "anthropic" (Claude). Empty picks Claude if a key is set.
+      KINDRED_ASK_PROVIDER: ${KINDRED_ASK_PROVIDER:-}
+      KINDRED_OLLAMA_MODEL: ${KINDRED_OLLAMA_MODEL:-llama3.1:8b}
+      # Ollama runs on the host (it can use the host's GPU and memory there); the container reaches it here.
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["./data:/app/data"]
     ports: ["8000:8000"]
     depends_on: [falkordb]
