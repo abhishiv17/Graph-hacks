@@ -3,7 +3,6 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PoolMap, { linkKey } from "@/components/app/PoolMap";
-import CypherPanel from "@/components/CypherPanel";
 import { PageIntro, Term } from "@/components/app/Help";
 import { DataScope, EmptyState, ErrorState, EvalTag, Field, Loading, OrganTag, StatusPill, Tag } from "@/components/app/ui";
 import { Icon } from "@/components/app/icons";
@@ -246,7 +245,6 @@ function LivePool() {
         </section>
         <PairDetail row={sel} fact={sel ? facts.get(sel.pair_id) : undefined} repairReady={!!sel?.loop && tasks.has(sel.loop.loop_id)} />
       </div>
-      <div className="mt-10"><CypherPanel ran={pool?.queries} title="FalkorDB queries behind this screen" /></div>
     </div>
   );
 }

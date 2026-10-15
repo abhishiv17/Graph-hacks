@@ -15,9 +15,9 @@ the one place a real identity provider would plug in.
 | Situation | CKD stage 4, not on dialysis yet. Husband (group O) wants to donate, but she has antibodies against his B44. cPRA 88 | Cirrhosis. His daughter's graft is too small for him (a clash only liver has), though it would fit a lighter patient |
 | Readings on file | eGFR monthly: 26 → 25 → 23 → 22 → 21 → 21 | MELD monthly: 14 → 15 → 16 → 16 → 17 → 18 |
 | What "Next week" brings | 19, 18, 17, 16, 15, 14 | 20, 22, 25, 26, 27, 28 |
-| Week 1 | Prepare (eGFR ≤ 20). The matching agent finds a 2-way swap at once | Prepare (MELD ≥ 19). Nobody in the pool fits him yet; the agent says so |
-| Week 2 | The crossmatch coordinator runs the lab tests: all pass | A new family joins the pool in Mumbai. The watch notices the pool changed and the matching agent forms a swap |
-| Then | Papers collected, surgery booked, transplant done in week 5 | Work-ups pass, papers collected, transplant done in week 6 |
+| Week 1 | Prepare (eGFR ≤ 20). The coordinator's 2-way search finds swaps; it forms one | Prepare (MELD ≥ 19). Both searches find nothing; it waits |
+| Week 2 | It runs the lab tests: all pass | A family joins in Mumbai. 2-way search: 0; 3-way search: found. It forms the 3-way swap |
+| Then | Surgery booked, transplant done in week 4 | Work-ups pass, papers requested and received, surgery booked, transplant done in week 6 |
 
 Thresholds are program configuration (`data/params/personas.yaml`), each with its source:
 
@@ -44,27 +44,46 @@ stories (S-0076, L-0034) repair exactly as before (tests/test_demo_flow.py, test
 - **Procedural:** `Playbook {stage}` with ordered `Step {agent, action, why}` nodes. The health watch reads its own playbook from the graph.
 - **Across sessions:** opening the page starts a `Session`; the greeting says what changed since the previous visit.
 
-## The agents (Tracks 1 and 2)
+## The week, step by step (Tracks 1 and 2)
 
 Each simulated week (`health.advance`):
 
-1. **Arrivals.** New families may join the pool (`arrivals` in the YAML); the intake agent adds them like any family.
-2. **The case moves one step, on its own** (`health.progress`):
-   - no swap yet and marked urgent → the matching agent searches again whenever the pool has changed (the background watch does this too, every sweep);
-   - swap offered → the crossmatch coordinator runs the tests (lab crossmatch, or the donor work-up for liver);
-   - tests passed → the committee clerk asks for missing papers, the hospitals answer within the week, the file is filed (synthetic approval) and the scheduler books the surgery, the same day for every family;
-   - surgery date reached → the transplant is recorded as done and the journey ends.
-3. **A new reading.** The health watch compares the trend with the thresholds and with the stage it remembers. Only a more urgent stage triggers the stage's playbook; the same stage again means no repeat alert. Once the transplant is booked there is nothing new to hand out.
-4. **Hand-offs.** One `Task` per playbook step, `ASSIGNED_TO` the matching agent (mark urgent, search 2-way then 3-way, form the swap), the scheduler (book appointments), the committee clerk (chase papers) or the patient liaison (message the family). Each agent picks up its own open tasks (`run_handoffs`), from the API and from the background watch.
+1. **The world** (not an agent, and labelled "Hospitals" on the page): scripted families join the pool (`arrivals` in
+   the YAML), hospitals send the papers the clerk asked for a week earlier, and a booked surgery happens on its date.
+2. **The health watch** reads the new result, compares the trend with the thresholds and with the stage it remembers.
+   Only a more urgent stage triggers the stage's playbook (read from the graph), handing one `Task` each to the
+   scheduler, committee clerk and patient liaison. Each agent picks up its own open tasks.
+3. **The coordinator agent** (`agents/coordinator.py`) chooses this week's step for the case. It is a language model
+   (Groq `openai/gpt-oss-120b` by default) given the patient's state from the graph, including what the agents
+   remembered, and a fixed catalogue of six tools:
 
-Nobody approves a step. People see every step (the journey, the audit trail, the decisions with what they were based on),
-and **Replay** undoes the swap and the arrival and restarts the journey from the six months on file.
+   | Tool | What it does (each checks its preconditions against the graph) |
+   |---|---|
+   | `find_swaps(max_size)` | Searches 2-way (shallow) or 2-and-3-way (deep) loops through the patient; every search is stored as a `Search` node |
+   | `form_swap(reason)` | Forms the best swap and sends offers, only after a search found one |
+   | `run_tests(loop_id, reason)` | Runs the pre-surgery tests (crossmatch or donor work-up) |
+   | `request_papers(loop_id, reason)` | Asks the hospitals for missing committee papers |
+   | `book_surgery(loop_id, reason)` | Files the committee case and books surgery, same day for every family |
+   | `wait(reason)` | Nothing this week |
 
-## Ask KindRed
+   One action per week (a second one is refused). Every id the model's reason names must appear in what the action
+   returned, or the reason is replaced by the result. If the model fails, or waits while the rules say a step is due,
+   the rules run the same tools and the trace says "Safety net". The decision is a `Finding` with the full tool trace
+   in the patient's memory and a `Decision` in the exchange graph. The same tools are on the MCP server (`patient_*`).
 
-`patient_memory` is one of Ask KindRed's read-only tools: "What do the agents remember about P-0901?" returns the
-current beliefs with what each replaced, dated findings and open hand-offs. Ask KindRed runs on Groq, Claude or a local
-Ollama model (`KINDRED_ASK_PROVIDER`).
+Between weeks, the background watch (every 30 s) runs the coordinator again if the pool changed while an urgent patient
+waits. **Replay** undoes the swap and the arrival and restarts the journey; the conversation about the patient is kept.
+
+### Shallow vs deep search
+
+Rajesh in week 2: the 2-way search finds nothing; the 3-way search finds Kochi → Bengaluru → Mumbai, a loop that only
+exists because the Mumbai family joined. The page shows both counts and replays the search on a small map.
+
+### Asking about a patient
+
+The patient page has its own Ask KindRed chat. Questions are framed around the patient (the model reaches for
+`patient_memory`), and both turns are stored as `Message` nodes in the patient's memory graph, so any browser sees the
+same conversation and "where you left off".
 
 ## API
 
@@ -73,11 +92,12 @@ Ollama model (`KINDRED_ASK_PROVIDER`).
 - `POST /api/personas/{id}/session` – start a session; returns the "since last time" greeting.
 - `POST /api/personas/{id}/advance` – one simulated week (409 once the transplant is done).
 - `POST /api/personas/{id}/reset` – replay the journey.
+- `GET|POST /api/personas/{id}/chat` – the conversation about the patient (stored in their memory graph).
 
 ## Screens
 
 - `/patients` – pick a demo patient (first item in the sidebar, linked from the homepage).
-- `/patients/{id}` – where the case stands (five steps), **See the swap on the live map**, the trend chart, what the agents did week by week, and "Under the hood" (memory, playbook, appointments, graphs and queries).
+- `/patients/{id}` – where the case stands (five steps) with this week's coordinator decision and "How it decided", **See the swap on the live map**, "Why this swap" (a small map, each donation's reasons and chance, shallow vs deep search with a replay), "Ask about the patient", the trend chart, and month chips that open each month's weekly breakdown.
 - `/pool?patient={id}` – the live map with that patient's swap in focus and a link back.
 
 ## Not in scope for the hackathon

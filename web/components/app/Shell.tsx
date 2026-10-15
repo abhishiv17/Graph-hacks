@@ -12,22 +12,17 @@ import { ORGANS, ORGAN_NAMES, organOf } from "@/lib/organs";
 import type { Viewer } from "@/lib/data/types";
 import { gsap, useGSAP } from "@/components/landing/gsap";
 
-// Four places to go first; everything else waits under "More tools" so the first look stays simple.
+// Four places to go; everything else waits under "More tools" so the first look stays simple. Screens that aren't
+// listed (committee, integrity, family view, audit, impact, how it works) still open from links.
 export const NAV_GROUPS: { title: string; collapsed?: boolean; items: { href: string; label: string; icon: string; sub: string }[] }[] = [
   { title: "Start here", items: [
-    { href: "/patients", label: "Demo patients", icon: "user", sub: "Agents follow one patient to a transplant" },
+    { href: "/patients", label: "Demo patients", icon: "user", sub: "Agents take a patient to a transplant" },
     { href: "/pool", label: "Live map", icon: "pool", sub: "Every planned swap across India" },
-    { href: "/ask", label: "Ask KindRed", icon: "search", sub: "Questions answered from the graph" },
-    { href: "/graph", label: "How it works", icon: "database", sub: "FalkorDB graphs, queries, agents" },
+    { href: "/swaps", label: "Swaps", icon: "swaps", sub: "Every swap: tests, failures, repairs" },
+    { href: "/ask", label: "Ask KindRed", icon: "search", sub: "Ask the graph in plain words" },
   ] },
   { title: "More tools", collapsed: true, items: [
-    { href: "/swaps", label: "Swaps", icon: "swaps", sub: "Tests, failures, repairs" },
-    { href: "/committee", label: "Committee review", icon: "committee", sub: "Program checklists and papers" },
-    { href: "/case/P-0154", label: "Family view", icon: "family", sub: "What a family sees" },
-    { href: "/integrity", label: "Integrity", icon: "integrity", sub: "Data and workflow checks" },
     { href: "/lab", label: "Simulation lab", icon: "replay", sub: "Each program's scenario, step by step" },
-    { href: "/impact", label: "Impact", icon: "lab", sub: "A simulated year, measured" },
-    { href: "/audit", label: "Audit trail", icon: "audit", sub: "Every action and decision" },
   ] },
 ];
 export const NAV = NAV_GROUPS.flatMap((g) => g.items);

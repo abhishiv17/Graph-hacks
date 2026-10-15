@@ -4,10 +4,12 @@ hand-offs without signing up. data/params/personas.yaml holds who they are, thei
 Where each part lives, all in FalkorDB:
 - the hospital's private graph (hosp_hyd, hosp_cok): LabResult and Appointment nodes on the hospital's Pair;
 - the shared exchange graph: the pair itself (matched like any other), Task hand-offs, Decisions and Events;
-- one memory graph per persona (mem_sunita, mem_rajesh): Person, Session, Finding, Fact, Playbook/Step, Handoff.
+- one memory graph per persona (mem_sunita, mem_rajesh): Person, Session, Finding, Fact, Playbook/Step, Handoff,
+  Search (every swap search, at its depth) and Message (the ongoing conversation about the patient).
 
 The persona clock is simulated: week 0 is when the demo was loaded, and "Next week" moves it on seven days.
 """
+import json
 import time
 import uuid
 from functools import lru_cache
@@ -41,6 +43,11 @@ def by_pair(pair_id: str) -> dict | None:
 
 def memory_graph(pid: str) -> str:
     return f"mem_{pid}"
+
+
+def chat_graph(pid: str) -> str:
+    """The conversation about a patient. Its own graph, so neither a replay nor Restart demo deletes it."""
+    return f"chat_{pid}"
 
 
 def hospital_graph(p: dict) -> str:
@@ -178,8 +185,10 @@ def seed(pid: str, publish_pair: bool = True) -> dict:
                                                              at: v.at, note: v.note, booked_by: 'hospital'})""",
            {"id": p["pair_id"], "vs": visits}, graph=hg)
 
-    # The persona's own memory graph, rebuilt from scratch.
+    # The persona's own memory graph, rebuilt from scratch. The conversation lives in its own graph (chat_<id>), which
+    # neither a replay nor Restart demo deletes; move any older messages there first.
     if mg in db.db().list_graphs():
+        _move_messages(pid)
         db.db().select_graph(mg).delete()
     db.raw("CREATE (:Person {persona_id: $p, pair_id: $pair, name: $n, organ: $o, hospital: $h, base: $now, week: 0})",
            {"p": pid, "pair": p["pair_id"], "n": p["name"], "o": p["organ"], "h": p["hospital"], "now": now}, graph=mg)
@@ -190,18 +199,50 @@ def seed(pid: str, publish_pair: bool = True) -> dict:
                   CREATE (pb)-[:STEP {order: i + 1}]->(:Step {agent: s.agent, action: s.action, what: s.what, in_days: s.in_days, why: s.why})""",
                {"p": pid, "stage": stage, "label": stage_label(p["organ"], stage),
                 "steps": [{"what": None, "in_days": None, **s} for s in steps]}, graph=mg)
-    pts = [(r["at"], r["value"]) for r in readings]
-    a = assess(p["organ"], pts)
-    last = readings[-1]
-    remember_finding(pid, kind="baseline", stage=a["stage"], previous=None, a=a, at=last["at"], week=0,
-                     text=f"On file when the demo began: {trend_text(p['organ'], a)}. Stage: {stage_label(p['organ'], a['stage'])}.",
-                     readings=readings[-4:], triggered=None)
-    update_facts(pid, a, last["at"])
+    a = _history(pid, p, readings, visits, now)
+    update_facts(pid, a, readings[-1]["at"])
     db.raw("""MATCH (me:Person {persona_id: $p})
               CREATE (me)-[:HAD_SESSION]->(:Session {session_id: $s, at: $at, created: $at, week: 0,
                                                      greeting: 'First look at this case after the referral.'})""",
            {"p": pid, "s": _id("S"), "at": now - 14 * DAY_MS}, graph=mg)
     return {"persona": pid, **res, "stage": a["stage"]}
+
+
+def _history(pid: str, p: dict, readings: list[dict], visits: list[dict], now: int) -> dict:
+    """The six months on file, week by week, in the persona's memory: each monthly lab result assessed as the health
+    watch would have (so past stage changes are remembered), each hospital visit, and a weekly check in between.
+    Dated in the past, so they never count as news in the "since your last look" greeting. Returns the last assessment."""
+    organ, label = p["organ"], p["measure"]["label"]
+    first = min([r["at"] for r in readings] + [v["at"] for v in visits])
+    weeks = -((now - first) // WEEK_MS) - 1
+    stage, a = None, None
+    for w in range(weeks, 0):
+        start, end = now + w * WEEK_MS, now + (w + 1) * WEEK_MS
+        notes = []
+        for r in [r for r in readings if start <= r["at"] < end]:
+            upto = [x for x in readings if x["at"] <= r["at"]]
+            a = assess(organ, [(x["at"], x["value"]) for x in upto])
+            if stage and a["stage"] != stage:
+                text = (f"Monthly lab: {trend_text(organ, a)}. Stage moved from {stage_label(organ, stage)} to "
+                        f"{stage_label(organ, a['stage'])} (on file, before the demo).")
+                kind = "stage_change"
+            else:
+                text = f"Monthly lab: {trend_text(organ, a)}. Stage: {stage_label(organ, a['stage'])}."
+                kind = "reading"
+            notes.append((kind, r["at"], text, a["stage"], stage, upto[-4:]))
+            stage = a["stage"]
+        for v in [v for v in visits if start <= v["at"] < end]:
+            notes.append(("world", v["at"], f"{v['kind']}: {v['note']}", stage, stage, []))
+        if not notes and a:
+            last = [x for x in readings if x["at"] < start][-1]
+            notes.append(("check", start, f"Weekly check: no new result; latest {label} {last['value']:g} "
+                                          f"({time.strftime('%d %b', time.localtime(last['at'] / 1000))}). "
+                                          f"Stage: {stage_label(organ, stage)}, nothing to do.", stage, stage, []))
+        for kind, at, text, st, prev, rs in notes:
+            fid = remember_finding(pid, kind=kind, stage=st or "stable", previous=prev, a=a or assess(organ, [(at, readings[0]["value"])]),
+                                   at=at, week=w, text=text, readings=rs, triggered=None)
+            db.raw("MATCH (f:Finding {finding_id: $f}) SET f.created = f.at", {"f": fid}, graph=memory_graph(pid))
+    return a
 
 
 def seed_all(publish_pair: bool = True) -> list[dict]:
@@ -217,7 +258,7 @@ def reset(pid: str) -> dict:
     loops = [r["l"] for r in db.raw("MATCH (q:Pair)-[:IN_LOOP]->(l:Loop) WHERE q.pair_id IN $ids RETURN DISTINCT l.loop_id AS l",
                                     {"ids": ids})]
     if loops:
-        db.raw("MATCH (q:Pair)-[:IN_LOOP]->(l:Loop) WHERE l.loop_id IN $ls SET q.status = 'waiting', q.docs_requested = null",
+        db.raw("MATCH (q:Pair)-[:IN_LOOP]->(l:Loop) WHERE l.loop_id IN $ls SET q.status = 'waiting', q.docs_requested_at = null",
                {"ls": loops})
         db.raw("MATCH (x)-[:FOR|IN|ABOUT]->(l:Loop) WHERE l.loop_id IN $ls DETACH DELETE x", {"ls": loops})
         db.raw("MATCH (l:Loop) WHERE l.loop_id IN $ls DETACH DELETE l", {"ls": loops})
@@ -229,7 +270,7 @@ def reset(pid: str) -> dict:
     db.raw("MATCH (t:Task {kind: 'handoff'})-[:ABOUT]->(:Pair {pair_id: $id}) DETACH DELETE t", {"id": p["pair_id"]})
     db.raw("""MATCH (pp:Pair {pair_id: $id})-[:HAS_PATIENT]->(t:Patient)
               SET pp.urgent = false, pp.needs_rematch = false, pp.searched_pool = null, pp.status = 'waiting',
-                  pp.docs_requested = null, pp.approval_state = 'submitted', t.meld = $meld""",
+                  pp.docs_requested_at = null, pp.approval_state = 'submitted', t.meld = $meld""",
            {"id": p["pair_id"], "meld": p["patient"].get("meld")})
     db.raw("MATCH (:Pair {pair_id: $id})-[:NEEDS_DOC]->(d:Document) "
            "SET d.status = CASE WHEN d.type IN $m THEN 'missing' ELSE 'verified' END",
@@ -239,6 +280,50 @@ def reset(pid: str) -> dict:
 
 
 # ---------------------------------------------------------------- memory writes
+
+def record_search(pid: str, *, at: int, week: int, depth: int, found: int, total: int, loops: list[dict], by: str) -> None:
+    db.run("Q50_record_search", {"persona_id": pid, "search_id": _id("Q"), "at": at, "week": week, "depth": depth, "found": found,
+                                 "total": total, "loops": json.dumps(loops), "by": by}, graph=memory_graph(pid))
+
+
+def remember_decision(pid: str, *, at: int, week: int, text: str, trace: list[dict], model: str | None, reason: str,
+                      safety_net: str | None, due: str, action: str) -> str:
+    """The coordinator agent's choice for the week, with the model's reason and every tool call, in the patient's memory."""
+    rs = readings(pid)
+    a = assess(get(pid)["organ"], [(r["at"], r["value"]) for r in rs])
+    fid = remember_finding(pid, kind="decision", stage=a["stage"], previous=a["stage"], a=a, at=at, week=week, text=text,
+                           readings=[], triggered=None)
+    db.raw("MATCH (f:Finding {finding_id: $f}) SET f.trace = $t, f.model = $m, f.reason = $r, f.safety_net = $s, f.due = $d, f.action = $a",
+           {"f": fid, "t": json.dumps(trace, default=str), "m": model, "r": reason, "s": safety_net, "d": due, "a": action},
+           graph=memory_graph(pid))
+    return fid
+
+
+def conversation(pid: str) -> list[dict]:
+    if chat_graph(pid) not in db.db().list_graphs():
+        return []
+    return db.run("Q52_conversation", {"persona_id": pid}, graph=chat_graph(pid))
+
+
+def add_message(pid: str, role: str, text: str, tools: list[str] | None = None, model: str | None = None,
+                message_id: str | None = None, at: int | None = None) -> str:
+    mid = message_id or _id("M")
+    db.raw("MERGE (:Person {persona_id: $p})", {"p": pid}, graph=chat_graph(pid))
+    db.run("Q53_add_message", {"persona_id": pid, "message_id": mid, "role": role, "text": text,
+                               "at": at or int(time.time() * 1000), "tools": tools or [], "model": model}, graph=chat_graph(pid))
+    return mid
+
+
+def _move_messages(pid: str) -> int:
+    """Messages kept in the memory graph by an earlier version move to the chat graph (once, keeping their ids)."""
+    old = db.raw("MATCH (:Person)-[:SAID]->(m:Message) RETURN m.message_id AS message_id, m.role AS role, m.text AS text, "
+                 "m.at AS at, m.tools AS tools, m.model AS model ORDER BY m.at", graph=memory_graph(pid))
+    have = {m["message_id"] for m in conversation(pid)}
+    for m in old:
+        if m["message_id"] not in have:
+            add_message(pid, m["role"], m["text"], m["tools"], m["model"], message_id=m["message_id"], at=m["at"])
+    return len(old)
+
 
 def remember_finding(pid: str, *, kind: str, stage: str, previous: str | None, a: dict, at: int, week: int, text: str,
                      readings: list[dict], triggered: str | None) -> str:
@@ -312,7 +397,7 @@ def journey(pid: str) -> dict:
         s = summary(pid)
         rs = readings(pid)
         facts = db.run("Q42_current_facts", {"persona_id": pid}, graph=mg)
-        findings = db.run("Q43_findings", {"persona_id": pid, "limit": 30}, graph=mg)
+        findings = db.run("Q43_findings", {"persona_id": pid, "limit": 300}, graph=mg)
         stage = s["stage"] or "stable"
         playbook = db.run("Q44_playbook", {"persona_id": pid, "stage": stage}, graph=mg)
         sessions = db.run("Q47_sessions", {"persona_id": pid, "limit": 10}, graph=mg)
@@ -322,10 +407,22 @@ def journey(pid: str) -> dict:
                          WHERE l.status IN ['selected', 'offered', 'testing', 'committee', 'locked']
                          RETURN pp.status AS status, coalesce(pp.urgent, false) AS urgent, coalesce(pp.needs_rematch, false) AS needs_rematch,
                                 pp.approval_state AS approval_state, l.loop_id AS loop_id""", {"id": p["pair_id"]})
+        # Why this swap: each donation of the patient's swap, with the reasons and chance stored on its edge (Q13).
+        why = db.run("Q13_explain_loop", {"loop_id": s["case"]["loop_id"]}) if s["case"] else []
+        searches = db.run("Q51_searches", {"persona_id": pid, "limit": 20}, graph=mg)
+        chat = conversation(pid)
     for f in findings:
         f["readings"] = [r for r in f["readings"] if r.get("result_id")]
         f["handoffs"] = [h for h in f["handoffs"] if h.get("task_id")]
-    import json
+        f["trace"] = json.loads(f["trace"]) if f.get("trace") else None
+    for q in searches:
+        q["loops"] = json.loads(q["loops"]) if q.get("loops") else []
+    # Where every family the page mentions is, for the small map.
+    ids = {p["pair_id"], *[x for r in why for x in (r["from_pair"], r["to_pair"])],
+           *[x for q in searches for l in q["loops"] for x in l["families"]]}
+    places = {r["p"]: {k: r[k] for k in ("code", "city", "lat", "lon")} for r in db.raw(
+        "MATCH (q:Pair)-[:REGISTERED_AT]->(h:Hospital) WHERE q.pair_id IN $ids "
+        "RETURN q.pair_id AS p, h.code AS code, h.city AS city, h.lat AS lat, h.lon AS lon", {"ids": list(ids)})}
     for h in handoffs:
         h["payload"] = json.loads(h["payload"]) if h.get("payload") else {}
     liaison = next((h for h in handoffs if h["action"] == "message" and h["status"] == "done"), None)
@@ -339,6 +436,7 @@ def journey(pid: str) -> dict:
             "handoffs": handoffs, "appointments": appts, "pair": pair[0] if pair else None,
             "family_message": liaison and liaison["result"], "thresholds": bands,
             "stages": settings()["stages"][p["organ"]], "sources": settings()["thresholds"]["sources"],
+            "why": why, "searches": searches, "places": places, "conversation": chat,
             "graphs": {"memory": mg, "hospital": hg, "shared": config.EXCHANGE}, "queries": tr.ran}
 
 

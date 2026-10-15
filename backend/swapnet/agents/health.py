@@ -1,15 +1,15 @@
-"""The health watch, the scheduler and the case manager, for the demo patients (docs/personas.md). Fully agentic: no
-step waits for a button. People see every step (findings, events, decisions) and can restart a journey with Replay.
+"""The demo patients' week (docs/personas.md): the world, the health watch, and the coordinator agent.
 
-Each simulated week:
-1. New families may join the pool (scripted arrivals). Intake agents add them like any family.
-2. The case moves one step on its own: the matching agent searches again whenever the pool has changed, the
-   crossmatch coordinator runs the tests for the patient's swap, the committee clerk collects the papers and files
-   them, the scheduler books the transplant date, and on that date the transplant is recorded as done.
-3. The hospital lab sends a new reading. The health watch compares the trend with configured thresholds and with the
+Each simulated week (`advance`):
+1. The world moves (not an agent, and labelled as such): scripted new families join the pool, hospitals send papers
+   the clerk asked for a week ago, and a booked surgery happens on its date.
+2. The hospital lab sends a new reading. The health watch compares the trend with configured thresholds and with the
    stage it remembers (the persona's memory graph). Only a more urgent stage triggers the stage's playbook, which it
-   reads from the graph, handing one Task per step to an agent in the shared exchange graph.
-4. Each agent picks up its own open tasks (`run_handoffs`, also called by the background watch every sweep).
+   reads from the graph, handing one Task per step to the scheduler, committee clerk or patient liaison. Each agent
+   picks up its own open tasks (`run_handoffs`, also called by the background watch every sweep).
+3. The coordinator agent (agents/coordinator.py, a language model with a fixed tool catalogue) chooses this week's
+   step for the case: search shallow then deep, form the swap, run the tests, ask for papers, or book the surgery.
+No step waits for a button. People see every step, and Replay restarts the journey.
 """
 import json
 import time
@@ -26,7 +26,7 @@ LIVE = ["selected", "offered", "testing", "committee", "locked"]
 
 def ensure_agents() -> None:
     db.raw("UNWIND $a AS a MERGE (g:Agent {name: a[0]}) SET g.kind = a[1]",
-           {"a": [[HEALTH, "health"], [SCHEDULER, "scheduler"]]})
+           {"a": [[HEALTH, "health"], [SCHEDULER, "scheduler"], ["Coordinator agent", "coordinator"]]})
 
 
 def _city(code: str) -> str:
@@ -40,8 +40,6 @@ def _date(ms: int) -> str:
 class EndOfJourney(ValueError):
     """The journey is over (transplant done, or the scripted readings ran out); replay it to start again."""
 
-
-# ---------------------------------------------------------------- the patient's case in the shared graph
 
 def case(pair_id: str) -> dict | None:
     """The live swap this pair is in, if any, with its route and where it stands."""
@@ -59,117 +57,58 @@ def case(pair_id: str) -> dict | None:
     return c
 
 
-def _note(p: dict, text: str, now: int, week: int) -> None:
-    """A step of the case, remembered in the persona's memory graph next to the health watch's findings."""
+def _note(p: dict, text: str, now: int, week: int, kind: str = "world") -> None:
+    """Remembered in the persona's memory graph next to the agents' findings."""
     rs = personas.readings(p["id"])
     a = personas.assess(p["organ"], [(r["at"], r["value"]) for r in rs])
-    facts = {f["key"]: f for f in db.run("Q42_current_facts", {"persona_id": p["id"]}, graph=personas.memory_graph(p["id"]))}
-    stage = facts.get("stage", {}).get("value") or a["stage"]
-    personas.remember_finding(p["id"], kind="case", stage=stage, previous=stage, a=a, at=now, week=week,
+    personas.remember_finding(p["id"], kind=kind, stage=a["stage"], previous=a["stage"], a=a, at=now, week=week,
                               text=text, readings=[], triggered=None)
 
 
-def _pool_size(organ: str) -> int:
-    return db.raw("MATCH (q:Pair {organ: $o, status: 'waiting'}) RETURN count(q) AS n", {"o": organ})[0]["n"]
+def _transplanted(p: dict) -> bool:
+    return db.raw("MATCH (pp:Pair {pair_id: $id}) RETURN pp.status AS s", {"id": p["pair_id"]})[0]["s"] == "transplanted"
 
 
-def search(p: dict, why: str) -> str:
-    """Matching agent: search around the pair (2 hops, 2-way and 3-way) and, if a swap is worth offering, form it and
-    send offers straight away. Remembers the pool size it searched, so the watch searches again only when it changes."""
-    loops = core.MatchingAgent().rematch([p["pair_id"]])
-    mine = next((l for l in loops if p["pair_id"] in l["pairs"]), None)
-    db.raw("MATCH (pp:Pair {pair_id: $id}) SET pp.urgent = true, pp.searched_pool = $n",
-           {"id": p["pair_id"], "n": _pool_size(p["organ"])})
-    now = personas.clock(p["id"])["now"]
-    if mine:
-        route = core._route(mine["pairs"])
-        personas.update_fact(p["id"], "swap", mine["loop_id"], f"In swap {mine['loop_id']} ({route})", now)
-        core.decide("Matching agent", "form_swap", f"{why}: formed {mine['loop_id']} ({route}) and sent offers",
-                    [("Loop", "loop_id", mine["loop_id"])], pair_id=p["pair_id"])
-        return (f"{why}. Found swap {mine['loop_id']}: {route}, expected {mine['expected_tx']} of {len(mine['pairs'])} "
-                "transplants. Offers sent, and the tests are requested")
-    personas.update_fact(p["id"], "swap", "none", "No swap in the pool yet; searching again whenever a new family joins", now)
-    return f"{why}. No swap in the pool yet; I'll search again whenever a new family joins"
+# ---------------------------------------------------------------- 1. the world
 
-
-def watch_pool(p: dict) -> str | None:
-    """The continuous part: an urgent patient still waiting is searched again as soon as the pool changes."""
-    r = db.raw("MATCH (pp:Pair {pair_id: $id}) RETURN pp.status AS s, coalesce(pp.urgent, false) AS u, pp.searched_pool AS n",
-               {"id": p["pair_id"]})
-    if not r or r[0]["s"] != "waiting" or not r[0]["u"] or r[0]["n"] == _pool_size(p["organ"]):
-        return None
-    return search(p, "Matching agent: the pool changed since my last search, so I searched again")
-
-
-def _missing(c: dict) -> list[tuple[str, str, str]]:
+def world(p: dict, now: int, week: int) -> list[str]:
+    """What happens outside the agents this week. Synthetic, and shown as such."""
     out = []
-    for pid, code in zip(c["pairs"], c["codes"]):
-        for d in publish.documents(pid, code):
-            if d["status"] != "verified":
-                out.append((pid, code, d["type"]))
-    return out
-
-
-def progress(p: dict, now: int) -> str | None:
-    """Move the patient's case one step, as the agents would in a real week. Returns what happened, if anything."""
+    spec = (p.get("arrivals") or {}).get(week)
+    if spec:
+        core.IntakeAgent(spec["hospital"]).add_pair(personas.arrival_pair(spec))
+        out.append(f"A new {spec['organ']} family ({spec['pair_id']}) joined the pool in {_city(spec['hospital'])}")
     c = case(p["pair_id"])
-    if not c:
-        return watch_pool(p)
-    lid = c["loop_id"]
-    if c["status"] in core.TESTABLE:
-        res = core.CrossmatchCoordinator().run_lab(lid)
-        test = core._loop_organ(lid).test_name
-        bad = [x for x in res if x["result"] == "positive"]
-        if bad:
-            return f"Crossmatch coordinator: a {test} on {lid} failed ({bad[0].get('detail', 'positive')}). The matching agent is repairing the swap"
-        return f"Crossmatch coordinator: every {test} on {lid} ({c['route']}) passed. Handed to the committee clerk"
-    if c["status"] == "committee":
-        missing = _missing(c)
-        asked = {r["q"] for r in db.raw("MATCH (q:Pair) WHERE q.pair_id IN $ids AND q.docs_requested = true RETURN q.pair_id AS q",
-                                        {"ids": c["pairs"]})}
-        ask = [m for m in missing if m[0] not in asked]
-        if ask:  # hospitals not asked yet get a request; they answer within the week
-            db.raw("MATCH (q:Pair) WHERE q.pair_id IN $ids SET q.docs_requested = true", {"ids": list({m[0] for m in ask})})
-            what = "; ".join(f"{_city(code)} {pid}: {t.replace('_', ' ')}" for pid, code, t in ask)
-            core.decide("Committee clerk", "chase", f"Requested {what} for {lid}", [("Loop", "loop_id", lid)], pair_id=p["pair_id"])
-            return f"Committee clerk: the file for {lid} is missing {what}. Asked the hospitals for them"
-        got = []
-        for pid, code, t in missing:  # every missing paper was requested at least a week ago: the hospitals have sent it
-            db.raw("MATCH (:Pair {pair_id: $id})-[:NEEDS_DOC]->(d:Document {type: $t}) SET d.status = 'verified'",
-                   {"id": pid, "t": t}, graph=config.hospital_graph(code))
-            got.append(f"{_city(code)} sent the {t.replace('_', ' ')}")
-        surgery = now + 7 * DAY_MS
-        db.raw("""MATCH (l:Loop {loop_id: $l}) SET l.status = 'locked', l.surgery_at = $at
-                  WITH l MATCH (q:Pair)-[:IN_LOOP]->(l) SET q.status = 'locked', q.approval_state = 'approved'""",
-               {"l": lid, "at": surgery})
-        db.raw("""MATCH (pp:Pair {pair_id: $id})
-                  CREATE (pp)-[:HAS_APPOINTMENT]->(:Appointment {appointment_id: $a, kind: 'Transplant surgery', status: 'booked',
-                                                                 at: $at, note: $n, booked_by: $by})""",
-               {"id": p["pair_id"], "a": core._id("A"), "at": surgery, "by": SCHEDULER,
-                "n": f"{lid}: every family's surgery on the same day"}, graph=personas.hospital_graph(p))
-        core.decide(SCHEDULER, "book_surgery", f"{lid} surgery booked for {_date(surgery)}", [("Loop", "loop_id", lid)], pair_id=p["pair_id"])
-        db.event(SCHEDULER, f"{lid} ({c['route']}): committee file complete; transplant surgery booked for {_date(surgery)}, "
-                            "same day for every family. Synthetic.", "ok")
-        personas.update_fact(p["id"], "swap", f"{lid}:booked", f"In swap {lid} ({c['route']}); transplant booked for {_date(surgery)}", now)
-        return ((f"Committee clerk: {', '.join(got)}. " if got else "Committee clerk: every paper was already in. ")
-                + "The file is complete and filed with the authorisation committee (synthetic approval). "
-                  f"Scheduler: transplant surgery booked for {_date(surgery)}, the same day for every family in {lid}")
-    if c["status"] == "locked" and c["surgery_at"] and c["surgery_at"] <= now and not c["transplanted_at"]:
+    ids = list({p["pair_id"], *(c["pairs"] if c else [])})
+    # Papers requested at least a week ago arrive.
+    for r in db.raw("""MATCH (q:Pair)-[:REGISTERED_AT]->(h:Hospital) WHERE q.pair_id IN $ids AND q.docs_requested_at <= $due
+                       RETURN q.pair_id AS q, h.code AS code""", {"ids": ids, "due": now - 7 * DAY_MS}):
+        got = [d["type"] for d in publish.documents(r["q"], r["code"]) if d["status"] != "verified"]
+        if got:
+            db.raw("MATCH (:Pair {pair_id: $id})-[:NEEDS_DOC]->(d:Document) WHERE d.type IN $t SET d.status = 'verified'",
+                   {"id": r["q"], "t": got}, graph=config.hospital_graph(r["code"]))
+            out.append(f"{_city(r['code'])} sent {r['q']}'s {', '.join(t.replace('_', ' ') for t in got)}")
+        db.raw("MATCH (q:Pair {pair_id: $id}) SET q.docs_requested_at = null", {"id": r["q"]})
+    if c and c["status"] == "locked" and c["surgery_at"] and c["surgery_at"] <= now and not c["transplanted_at"]:
         db.raw("""MATCH (l:Loop {loop_id: $l}) SET l.transplanted_at = $now
-                  WITH l MATCH (q:Pair)-[:IN_LOOP]->(l) SET q.status = 'transplanted'""", {"l": lid, "now": now})
+                  WITH l MATCH (q:Pair)-[:IN_LOOP]->(l) SET q.status = 'transplanted'""", {"l": c["loop_id"], "now": now})
         db.raw("MATCH (:Pair {pair_id: $id})-[:HAS_APPOINTMENT]->(a:Appointment {kind: 'Transplant surgery'}) SET a.status = 'done'",
                {"id": p["pair_id"]}, graph=personas.hospital_graph(p))
-        db.event(SCHEDULER, f"{lid} ({c['route']}): transplant surgery done for every family (synthetic).", "ok")
-        personas.update_fact(p["id"], "swap", f"{lid}:done", f"Transplanted through swap {lid} ({c['route']}) on {_date(now)}", now)
-        return f"Transplant done: {lid} ({c['route']}), every family on the same day (synthetic). The journey is complete"
-    return None
+        personas.update_fact(p["id"], "swap", f"{c['loop_id']}:done", f"Transplanted through swap {c['loop_id']} ({c['route']}) on {_date(now)}", now)
+        db.event(SCHEDULER, f"{c['loop_id']} ({c['route']}): transplant surgery done for every family (synthetic).", "ok")
+        out.append(f"Transplant done: {c['loop_id']} ({c['route']}), every family on the same day. The journey is complete")
+    for s in out:
+        db.event("Hospitals (simulated)", f"{p['pair_id']}: {s}. Synthetic.", "info")
+        _note(p, s, now, week)
+    return out
 
 
 # ---------------------------------------------------------------- one simulated week
 
 def advance(pid: str) -> dict:
+    from swapnet.agents import coordinator
     p = personas.get(pid)
-    if db.raw("MATCH (pp:Pair {pair_id: $id}) RETURN pp.status AS s", {"id": p["pair_id"]})[0]["s"] == "transplanted":
+    if _transplanted(p):
         raise EndOfJourney(f"{p['name']}'s transplant is done; replay the journey to start again")
     c = personas.clock(pid)
     week = c["week"] + 1
@@ -177,20 +116,13 @@ def advance(pid: str) -> dict:
         raise EndOfJourney(f"{p['name']}'s scripted journey has no more readings; replay it to start again")
     now = c["base"] + week * personas.WEEK_MS
     db.raw("MATCH (me:Person {persona_id: $p}) SET me.week = $w", {"p": pid, "w": week}, graph=personas.memory_graph(pid))
-    steps = []
-    spec = (p.get("arrivals") or {}).get(week)
-    if spec:
-        core.IntakeAgent(spec["hospital"]).add_pair(personas.arrival_pair(spec))
-        steps.append(f"Intake agent: a new {spec['organ']} family ({spec['pair_id']}) joined the pool in {_city(spec['hospital'])}")
-    done = progress(p, now)
-    if done:
-        steps.append(done)
-    for s in steps:
-        _note(p, s, now, week)
-    finding = None
-    if db.raw("MATCH (pp:Pair {pair_id: $id}) RETURN pp.status AS s", {"id": p["pair_id"]})[0]["s"] != "transplanted":
+    events = world(p, now, week)
+    finding, decision, handoffs = None, None, []
+    if not _transplanted(p):
         finding = _new_reading(p, week, now)
-    return {"week": week, "steps": steps, "finding": finding, "handoffs_run": run_handoffs()}
+        handoffs = run_handoffs()
+        decision = coordinator.run_week(p, now, week)
+    return {"week": week, "world": events, "finding": finding, "handoffs_run": handoffs, "decision": decision}
 
 
 def _new_reading(p: dict, week: int, at: int) -> dict | None:
@@ -207,7 +139,7 @@ def _new_reading(p: dict, week: int, at: int) -> dict | None:
     return HealthWatch().assess(p["id"])
 
 
-# ---------------------------------------------------------------- health watch
+# ---------------------------------------------------------------- 2. health watch
 
 class HealthWatch:
     name = HEALTH
@@ -257,14 +189,12 @@ class HealthWatch:
         tasks = []
         if acts:
             core.decide(self.name, "stage_change", text, [("Pair", "pair_id", p["pair_id"])], pair_id=p["pair_id"])
-            tasks = self._hand_off(p, fid, a, in_swap=c is not None)
+            tasks = self._hand_off(p, fid, a)
         return {"finding_id": fid, "kind": kind, "stage": a["stage"], "previous_stage": before, "text": text, "tasks": tasks}
 
-    def _hand_off(self, p: dict, fid: str, a: dict, in_swap: bool) -> list[str]:
+    def _hand_off(self, p: dict, fid: str, a: dict) -> list[str]:
         """Read the stage's playbook from memory and give each step to its agent as a Task in the exchange graph."""
         steps = db.run("Q44_playbook", {"persona_id": p["id"], "stage": a["stage"]}, graph=personas.memory_graph(p["id"]))
-        if in_swap:  # already in a swap: no new search
-            steps = [s for s in steps if s["action"] != "urgent_search"]
         out = []
         for s in steps:
             tid = core._id("T")
@@ -281,8 +211,6 @@ class HealthWatch:
         return out
 
 
-# ---------------------------------------------------------------- each agent picks up its own tasks
-
 def run_handoffs() -> list[str]:
     """Every agent does its open hand-offs, in step order."""
     rows = db.raw("""MATCH (t:Task {kind: 'handoff', status: 'open'})-[:ASSIGNED_TO]->(g:Agent)
@@ -294,8 +222,7 @@ def run_handoffs() -> list[str]:
         if not p:
             continue
         step = json.loads(r["payload"])
-        fn = {"book": Scheduler().book, "urgent_search": _urgent_search, "chase_documents": _chase_documents,
-              "message": _family_message}.get(r["action"])
+        fn = {"book": Scheduler().book, "chase_documents": _chase_documents, "message": _family_message}.get(r["action"])
         result = fn(p, step) if fn else f"No handler for {r['action']}"
         db.raw("MATCH (t:Task {task_id: $t}) SET t.status = 'done', t.done_at = timestamp(), t.result = $r", {"t": r["tid"], "r": result})
         personas.handoff_mirror(p["id"], r["f"], r["tid"], r["agent"], r["action"], "done", result)
@@ -324,20 +251,15 @@ class Scheduler:
         return f"Booked {step['what']} for {_date(at)} at {_city(p['hospital'])}"
 
 
-def _urgent_search(p: dict, step: dict) -> str:
-    """Matching agent: mark the pair urgent (it gets the urgent priority bonus) and form a swap if the pool has one."""
-    return search(p, f"Marked {p['pair_id']} urgent and searched 2-way, then 3-way swaps around it")
-
-
 def _chase_documents(p: dict, step: dict) -> str:
     """Committee clerk: papers must not be what holds a swap up once time is short."""
     docs = publish.documents(p["pair_id"], p["hospital"])
     missing = [d["type"].replace("_", " ") for d in docs if d["status"] != "verified"]
     if not missing:
         return "All committee papers are verified; nothing to chase"
-    db.raw("MATCH (pp:Pair {pair_id: $id}) SET pp.docs_requested = true", {"id": p["pair_id"]})
+    db.raw("MATCH (pp:Pair {pair_id: $id}) SET pp.docs_requested_at = $now", {"id": p["pair_id"], "now": personas.clock(p["id"])["now"]})
     core.decide("Committee clerk", "chase", f"Reminder for {', '.join(missing)}", [("Pair", "pair_id", p["pair_id"])], pair_id=p["pair_id"])
-    return f"Reminder sent to {_city(p['hospital'])}: {', '.join(missing)} still missing. Flagged as urgent"
+    return f"Asked {_city(p['hospital'])} for the {', '.join(missing)}; hospitals usually answer within a week"
 
 
 def _family_message(p: dict, step: dict) -> str:
@@ -353,8 +275,9 @@ def _family_message(p: dict, step: dict) -> str:
 
 
 def sweep() -> list[str]:
-    """The background watch's duty, every sweep: assess any reading nobody pressed a button for, search again for any
-    urgent patient still waiting if the pool changed, then run open hand-offs."""
+    """The background watch's duty, every sweep: assess any reading nobody pressed a button for, run open hand-offs,
+    and when the pool has changed while an urgent patient waits, let the coordinator agent look again right away."""
+    from swapnet.agents import coordinator
     out = []
     for pid in personas.ids():
         p = personas.get(pid)
@@ -362,11 +285,11 @@ def sweep() -> list[str]:
             f = HealthWatch().assess(pid)
             if f:
                 out.append(f"{pid}: {f['kind']}")
-            s = watch_pool(p)
-            if s:
-                c = personas.clock(pid)
-                _note(p, s, c["now"], c["week"])
-                out.append(f"{pid}: {s}")
+            c = personas.clock(pid)
+            st = coordinator.state(p, c["now"])
+            if st["pool"]["changed_since_last_search"] and st["urgent"] and st["pair_status"] == "waiting":
+                d = coordinator.run_week(p, c["now"], c["week"], trigger="the background watch saw the pool change")
+                out.append(f"{pid}: {d['summary']}")
         except Exception:
             continue  # persona not seeded (e.g. mid-reset)
     return out + run_handoffs()

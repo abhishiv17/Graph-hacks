@@ -51,13 +51,15 @@ personas:
     history: [[168, 14], [140, 15], [112, 16], [84, 16], [56, 17], [28, 18]]
     future: [20, 22, 25, 26, 27, 28]
     # New families join the pool every week. This one arrives in week 2; the agents' continuous watch notices it.
+    # It can't swap with Rajesh directly (his daughter's graft is too small for her too), but it closes a 3-way loop
+    # through a waiting family: only a deeper (3-way) search finds it.
     arrivals:
       2:
         pair_id: P-0903
         hospital: MUM
         organ: liver
         donor: {abo: B, sex: M, relation: husband, age_band: 35-44, bmi: 25.8, height_cm: 178, weight_kg: 80, untyped_loci: []}
-        patient: {abo: O, sex: F, age_band: 45-59, height_cm: 158, weight_kg: 55.0, meld: 17,
+        patient: {abo: A, sex: F, age_band: 45-59, height_cm: 175, weight_kg: 95.0, meld: 17,
                   recipient_evaluation: ELIGIBLE, surgical_review: ELIGIBLE}
         liver: {liver_volume_ml: 1500, left_lobe_ml: 520, right_lobe_ml: 980, right_lobe_ok: true, steatosis: false,
                 volumetry: ct, anatomy_review: ELIGIBLE, donor_evaluation: ELIGIBLE}
@@ -107,13 +109,11 @@ playbooks:
       - {agent: Scheduler, action: book, what: Nephrology review, in_days: 28, why: Decline is faster than 5 a year}
       - {agent: Patient liaison, action: message, why: Tell the family what the trend means}
     prepare:
-      - {agent: Matching agent, action: urgent_search, why: The pre-emptive window is open; look for a swap now}
       - {agent: Scheduler, action: book, what: Vascular access (fistula) assessment, in_days: 14, why: A fistula needs months to mature (KDOQI 2019)}
       - {agent: Scheduler, action: book, what: Transplant nephrology review, in_days: 7, why: Review the plan with the transplant team}
       - {agent: Committee clerk, action: chase_documents, why: Papers must not be what holds a swap up}
       - {agent: Patient liaison, action: message, why: Tell the family what happens next}
     act:
-      - {agent: Matching agent, action: urgent_search, why: Kidney failure is close; search 2-way and 3-way swaps}
       - {agent: Scheduler, action: book, what: Repeat crossmatch blood draw, in_days: 3, why: Ready the moment a swap is found}
       - {agent: Scheduler, action: book, what: Dialysis planning visit, in_days: 7, why: A safety net if no swap is found in time}
       - {agent: Committee clerk, action: chase_documents, why: Every missing paper delays surgery}
@@ -123,13 +123,11 @@ playbooks:
       - {agent: Scheduler, action: book, what: MELD labs (every 90 days), in_days: 90, why: OPTN Policy 9 recertification at MELD 11-18}
       - {agent: Patient liaison, action: message, why: Tell the family what the trend means}
     prepare:
-      - {agent: Matching agent, action: urgent_search, why: MELD is rising; look for a swap now}
       - {agent: Scheduler, action: book, what: MELD labs (every 30 days), in_days: 30, why: OPTN Policy 9 recertification at MELD 19-24}
       - {agent: Scheduler, action: book, what: Hepatology review, in_days: 7, why: Review the plan with the transplant team}
       - {agent: Committee clerk, action: chase_documents, why: Papers must not be what holds a swap up}
       - {agent: Patient liaison, action: message, why: Tell the family what happens next}
     act:
-      - {agent: Matching agent, action: urgent_search, why: MELD 25 or more is urgent; search 2-way and 3-way swaps}
       - {agent: Scheduler, action: book, what: MELD labs (every 7 days), in_days: 7, why: OPTN Policy 9 recertification at MELD 25 or more}
       - {agent: Scheduler, action: book, what: Donor work-up (CT volumetry) slot, in_days: 5, why: Ready the moment a swap is found}
       - {agent: Committee clerk, action: chase_documents, why: Every missing paper delays surgery}

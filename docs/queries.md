@@ -53,6 +53,10 @@ Rules for every query: parameterised (no string building), edge aliases always r
 | Q46 | `update_fact` | key, value → new current `Fact` that `SUPERSEDES` the old one (no-op if unchanged) | Persona memory graph | built |
 | Q47 | `sessions` | persona → earlier visits, newest first | Persona memory graph. The "since your last look" greeting | built |
 | Q48 | `pair_handoffs` | pair id → `Task` hand-offs `ABOUT` it and the `Agent` each is `ASSIGNED_TO` | Exchange graph: the shared state agents coordinate through | built |
+| Q50 | `record_search` | one swap search at one depth (2 or 3), with what it found → `Search` node | Persona memory graph; the shallow vs deep comparison | built |
+| Q51 | `searches` | persona → every search, newest first | Persona memory graph; patient page | built |
+| Q52 | `conversation` | persona → the ongoing chat about the patient, in order | Persona memory graph; any browser sees it | built |
+| Q53 | `add_message` | one chat turn → `Message` node | Persona memory graph | built |
 | Q49 | `appointments` | pair id → past visits and appointments the scheduler held | Hospital graph | built |
 
 Every named query without a write clause runs through `GRAPH.RO_QUERY` (`db.is_read_only`), so FalkorDB refuses a write from it.

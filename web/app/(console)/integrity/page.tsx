@@ -2,7 +2,6 @@
 import Link from "next/link";
 import { PageIntro } from "@/components/app/Help";
 import { EmptyState, ErrorState, Kpis, Loading, OrganTag, PageHeader, Section, Tag } from "@/components/app/ui";
-import CypherPanel from "@/components/CypherPanel";
 import { useResource } from "@/lib/data/source";
 import { useProgram } from "@/lib/program";
 import type { Integrity, IntegrityFinding } from "@/lib/data/types";
@@ -71,7 +70,6 @@ export default function IntegrityPage() {
             </Section>
           </div>
           <p className="mt-4 text-xs muted">{d.note}</p>
-          <div className="mt-8"><CypherPanel ran={d.queries} title="FalkorDB queries behind this screen" /></div>
         </>
       )}
     </div>

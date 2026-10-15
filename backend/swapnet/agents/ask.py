@@ -323,6 +323,12 @@ def _fallback_text(trace: list[dict]) -> str:
 # The tool loop, id checks, trace and memory are the same for every model. A provider only translates messages:
 # Claude through the Anthropic API, or a local model through Ollama (free, no key, runs on the laptop).
 
+def _openai_tools(tools: list[dict]) -> list[dict]:
+    """Our tool definitions in the OpenAI function-calling shape (Groq, Ollama)."""
+    return [{"type": "function", "function": {"name": t["name"], "description": t["description"],
+                                              "parameters": t["input_schema"]}} for t in tools]
+
+
 class Turn:
     def __init__(self, text: str, calls: list[tuple[str, str, dict]], stop: str, model: str, usage: dict, raw):
         self.text, self.calls, self.stop, self.model, self.usage, self.raw = text, calls, stop, model, usage, raw
@@ -332,16 +338,17 @@ class ClaudeLLM:
     name = "anthropic"
     max_rows = MAX_ROWS
 
-    def __init__(self, client: anthropic.Anthropic | None = None):
+    def __init__(self, client: anthropic.Anthropic | None = None, system: str | None = None, tools: list | None = None):
         self.client = client or anthropic.Anthropic()
         self.model = MODEL
+        self.system, self.tool_defs = system or SYSTEM, tools or TOOLS
 
     def start(self, history: list[dict], question: str) -> list:
         return [*history, {"role": "user", "content": question}]
 
     def turn(self, messages: list) -> Turn:
         r = self.client.beta.messages.create(
-            model=self.model, max_tokens=16000, system=SYSTEM, tools=TOOLS, messages=messages,
+            model=self.model, max_tokens=16000, system=self.system, tools=self.tool_defs, messages=messages,
             output_config={"effort": "medium"}, cache_control={"type": "ephemeral"},
             betas=["server-side-fallback-2026-07-01"], fallbacks="default")
         usage = {k: getattr(r.usage, k, 0) or 0 for k in ("input_tokens", "output_tokens", "cache_read_input_tokens")}
@@ -393,14 +400,15 @@ class OllamaLLM:
     name = "ollama"
     max_rows = 20
 
-    def __init__(self, base: str | None = None, model: str | None = None, http=None):
+    def __init__(self, base: str | None = None, model: str | None = None, http=None, system: str | None = None,
+                 tools: list | None = None):
         self.base, self.model = base or OLLAMA_URL, model or OLLAMA_MODEL
         self.http = http or httpx.Client(timeout=600)
-        self.tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
-                                                        "parameters": t["input_schema"]}} for t in TOOLS]
+        self.system, self.tool_defs = system or SYSTEM, tools or TOOLS
+        self.tools = _openai_tools(self.tool_defs)
 
     def start(self, history: list[dict], question: str) -> list:
-        return [{"role": "system", "content": SYSTEM + "\n- Pass ids exactly as written, e.g. P-0211, not a name."},
+        return [{"role": "system", "content": self.system + "\n- Pass ids exactly as written, e.g. P-0211, not a name."},
                 *history, {"role": "user", "content": question}]
 
     def turn(self, messages: list) -> Turn:
@@ -456,20 +464,30 @@ class GroqLLM:
     name = "groq"
     max_rows = 25
 
-    def __init__(self, key: str | None = None, model: str | None = None, http=None):
+    def __init__(self, key: str | None = None, model: str | None = None, http=None, system: str | None = None,
+                 tools: list | None = None):
         self.key = key if key is not None else os.getenv("GROQ_API_KEY", "")
         self.model = model or GROQ_MODEL
         self.http = http or httpx.Client(timeout=60)
-        self.tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
-                                                        "parameters": t["input_schema"]}} for t in TOOLS]
+        self.system, self.tool_defs = system or SYSTEM, tools or TOOLS
+        self.tools = _openai_tools(self.tool_defs)
 
     def start(self, history: list[dict], question: str) -> list:
-        return [{"role": "system", "content": SYSTEM + "\n- Pass ids exactly as written, e.g. P-0211, not a name."},
+        return [{"role": "system", "content": self.system + "\n- Pass ids exactly as written, e.g. P-0211, not a name."},
                 *history, {"role": "user", "content": question}]
 
     def turn(self, messages: list) -> Turn:
-        r = self.http.post(f"{GROQ_URL}/chat/completions", headers={"Authorization": f"Bearer {self.key}"}, json={
-            "model": self.model, "messages": messages, "tools": self.tools, "tool_choice": "auto", "temperature": 0})
+        body = {"model": self.model, "messages": messages, "tools": self.tools, "tool_choice": "auto", "temperature": 0}
+        for attempt in range(3):
+            r = self.http.post(f"{GROQ_URL}/chat/completions", headers={"Authorization": f"Bearer {self.key}"}, json=body)
+            if r.status_code != 429 or attempt == 2:
+                break
+            # Rate limited (free keys allow a few thousand tokens a minute): wait as long as Groq asks, briefly.
+            try:
+                wait = float(r.headers.get("retry-after") or 5)
+            except ValueError:
+                wait = 5
+            time.sleep(min(wait, 15))
         r.raise_for_status()
         body = r.json()
         choice = (body.get("choices") or [{}])[0]
@@ -512,8 +530,9 @@ def provider() -> str:
     return "groq" if os.getenv("GROQ_API_KEY") else "ollama"
 
 
-def default_llm():
-    return {"anthropic": ClaudeLLM, "groq": GroqLLM}.get(provider(), OllamaLLM)()
+def default_llm(system: str | None = None, tools: list | None = None):
+    """The configured model. Another agent (the coordinator) passes its own instructions and tool catalogue."""
+    return {"anthropic": ClaudeLLM, "groq": GroqLLM}.get(provider(), OllamaLLM)(system=system, tools=tools)
 
 
 def status() -> dict:

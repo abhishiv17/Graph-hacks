@@ -51,6 +51,7 @@ const personasOffline = {
   async personaSession() { throw new Error(PERSONAS_LIVE); },
   async personaAdvance() { throw new Error(PERSONAS_LIVE); },
   async personaReset() { throw new Error(PERSONAS_LIVE); },
+  async personaChat() { throw new Error(PERSONAS_LIVE); },
 };
 
 export function createOfflineApi(): Api {

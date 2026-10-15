@@ -284,6 +284,70 @@ def patient_memory(pair_id: str) -> dict:
     return _graph_tool(lambda: _box().patient_memory(pair_id))
 
 
+def _case_tool(persona: str, name: str, args: dict) -> dict:
+    """Run one of the coordinator agent's tools for a demo patient, at the patient's current simulated date."""
+    from swapnet import personas
+    from swapnet.agents import coordinator
+    p = personas.get(persona)
+    if not p:
+        return {"error": f"no demo patient {persona!r}; try sunita or rajesh"}
+    c = personas.clock(persona)
+    with core.LOCK:
+        return coordinator.CaseTools(p, c["now"], c["week"], by="mcp").call(name, args)
+
+
+@mcp.tool()
+def patient_case_state(persona: str) -> dict:
+    """The coordinator agent's view of a demo patient (sunita, rajesh): stage, trend, swap, missing papers, what
+    changed in the pool, recent memory, and the step the rules expect this week."""
+    from swapnet import personas
+    from swapnet.agents import coordinator
+    p = personas.get(persona)
+    return coordinator.state(p, personas.clock(persona)["now"]) if p else {"error": f"no demo patient {persona!r}"}
+
+
+@mcp.tool()
+def patient_find_swaps(persona: str, max_size: int = 2) -> dict:
+    """Search for swaps through a demo patient: max_size 2 (2-way, shallow) or 3 (also 3-way, deeper)."""
+    return _case_tool(persona, "find_swaps", {"max_size": max_size})
+
+
+@mcp.tool()
+def patient_form_swap(persona: str, reason: str) -> dict:
+    """Form the best swap through a demo patient and send offers (after a search found one)."""
+    return _form(persona, reason)
+
+
+def _form(persona: str, reason: str) -> dict:
+    from swapnet import personas
+    from swapnet.agents import coordinator
+    p, c = personas.get(persona), personas.clock(persona)
+    if not p:
+        return {"error": f"no demo patient {persona!r}"}
+    with core.LOCK:
+        t = coordinator.CaseTools(p, c["now"], c["week"], by="mcp")
+        t.call("find_swaps", {"max_size": 3})
+        return t.call("form_swap", {"reason": reason})
+
+
+@mcp.tool()
+def patient_run_tests(persona: str, loop_id: str, reason: str) -> dict:
+    """Run the pre-surgery tests on a demo patient's swap."""
+    return _case_tool(persona, "run_tests", {"loop_id": loop_id, "reason": reason})
+
+
+@mcp.tool()
+def patient_request_papers(persona: str, loop_id: str, reason: str) -> dict:
+    """Ask the hospitals for the committee papers still missing for a demo patient's swap."""
+    return _case_tool(persona, "request_papers", {"loop_id": loop_id, "reason": reason})
+
+
+@mcp.tool()
+def patient_book_surgery(persona: str, loop_id: str, reason: str) -> dict:
+    """File the complete committee case and book surgery for a demo patient's swap."""
+    return _case_tool(persona, "book_surgery", {"loop_id": loop_id, "reason": reason})
+
+
 @mcp.tool()
 def reset_demo() -> dict:
     """Reload the synthetic demo pools (kidney and liver) and both programs' scenarios."""
