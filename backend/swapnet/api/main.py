@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from swapnet import access, config, organs, personas, programs, scenario
+from swapnet import access, config, explore, organs, personas, programs, scenario
 from swapnet.access import Viewer
 from contextlib import asynccontextmanager
 
@@ -138,6 +138,20 @@ def pair_list(organ: str | None = None, v: Viewer = Depends(access.viewer)):
         rows = [r for r in programs.pairs(organ) if v.sees(r["code"], r["organ"])]
     return {"organ": organ, "pairs": rows, "privacy": "Shared exchange data only: no names, documents or clinical notes.",
             "queries": tr.ran}
+
+
+@app.get("/api/families/{pair_id}/explore")
+def family_explore(pair_id: str, hops: int = 1, v: Viewer = Depends(access.viewer)):
+    """One family as a small graph: its parts (patient, donor, blood groups, antigens, antibodies), why its own donor
+    can't give, and the families around it at 1, 2 or 3 hops, with the swaps that close back to it (Q55-Q57)."""
+    out = explore.family(pair_id.upper(), hops)
+    if out is None:
+        raise HTTPException(404, f"{pair_id} is not in the graph")
+    fam = next(n for n in out["nodes"] if n["id"] == f"fam:{out['center']}")
+    hosp = next(n for n in out["nodes"] if n["type"] == "hospital")
+    if not v.sees(hosp["data"]["code"], fam["data"]["organ"]):
+        raise HTTPException(403, f"{pair_id} is outside your hospitals or programs")
+    return out
 
 
 @app.get("/api/exchanges")
@@ -652,6 +666,15 @@ def queries():
 @app.get("/api/sim")
 def sim():
     p = config.DATA / "generated" / "sim_results.json"
+    if not p.exists():
+        return {"ready": False}
+    return {"ready": True, **json.loads(p.read_text(encoding="utf-8"))}
+
+
+@app.get("/api/concurrency")
+def concurrency():
+    """The measured concurrency test (swapnet/sim/concurrency.py): many agents writing while the matcher reads."""
+    p = config.DATA / "generated" / "concurrency.json"
     if not p.exists():
         return {"ready": False}
     return {"ready": True, **json.loads(p.read_text(encoding="utf-8"))}

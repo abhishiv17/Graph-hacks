@@ -10,7 +10,7 @@ import time
 import uuid
 
 from swapnet import config, organs
-from swapnet.agents import narrate
+from swapnet.agents import narrate, recall
 from swapnet.graph import db, publish
 from swapnet.optimiser.solver import Candidate, best_fallback, expected_transplants, rank_repairs, solve
 
@@ -39,12 +39,14 @@ def ensure_agents() -> None:
 
 
 def decide(agent: str, action: str, rationale: str, based_on: list[tuple[str, str, str]],
-           approved_by: str | None = None, pair_id: str | None = None) -> str:
-    """Write a Decision with BASED_ON edges to the facts it used, e.g. ("Loop", "loop_id", "S-0031")."""
+           approved_by: str | None = None, pair_id: str | None = None, read: list[dict] | None = None) -> str:
+    """Write a Decision with BASED_ON edges to the facts it used, e.g. ("Loop", "loop_id", "S-0031"), and the
+    memories the agent read before deciding (`read`, see agents/recall.py)."""
     did = _id("D")
-    db.raw("CREATE (d:Decision {decision_id: $id, action: $action, rationale: $r, at: timestamp(), pair_id: $pair}) "
+    db.raw("CREATE (d:Decision {decision_id: $id, action: $action, rationale: $r, at: timestamp(), pair_id: $pair, read: $read}) "
            "WITH d MATCH (g:Agent {name: $agent}) CREATE (d)-[:MADE_BY]->(g)",
-           {"id": did, "action": action, "r": rationale, "agent": agent, "pair": pair_id})
+           {"id": did, "action": action, "r": rationale, "agent": agent, "pair": pair_id,
+            "read": [recall.line(r) for r in read or []]})
     for label, key, val in based_on:
         db.raw(f"MATCH (d:Decision {{decision_id: $id}}), (x:{label} {{{key}: $v}}) CREATE (d)-[:BASED_ON]->(x)",
                {"id": did, "v": val})
@@ -367,6 +369,7 @@ class MatchingAgent:
 
     def run_plan(self, failure_aware: bool = True, first: str | None = None, max_loop: int = 3) -> dict:
         with db.track() as tr:
+            read = [recall.failures(None, "in the pool")]
             comps = db.run("Q07_components")
             rows = db.run("Q04_two_way_loops", {"ids": None, "organ": None})
             if max_loop >= 3:
@@ -378,13 +381,14 @@ class MatchingAgent:
         db.event(self.name, f"Plan {run_id}: {len(comps)} component(s), {res['candidates']} candidate loops found in "
                             f"the graph, {len(loops)} chosen in {res['solve_ms'] / 1000:.1f} s"
                             f"{' · optimal' if res['optimal'] else ''}. Expected {res['expected_tx']} of "
-                            f"{res['planned_tx']} transplants{self._organ_split(res['by_organ'])}.", "plan")
+                            f"{res['planned_tx']} transplants{self._organ_split(res['by_organ'])}. "
+                            f"{recall.line(read[0])}.", "plan")
         decide(self.name, "select_plan", f"Optimiser chose {len(loops)} loops by expected transplants, then priority.",
-               [("Plan", "run_id", run_id)])
+               [("Plan", "run_id", run_id)], read=read)
         for l in loops:
             self.offer(l["loop_id"])
         return {"run_id": run_id, "loops": loops, **{k: res[k] for k in ("optimal", "solve_ms", "expected_tx", "planned_tx", "candidates", "by_organ")},
-                "components": len(comps), "queries": tr.ran}
+                "components": len(comps), "read": read, "queries": tr.ran}
 
     @staticmethod
     def _organ_split(by: dict) -> str:
@@ -443,6 +447,7 @@ class MatchingAgent:
             # The test revealed what the pool didn't know (full typing, measured liver): learn it and
             # rebuild only that donor's links.
             _loop_organ(loop_id).learn_after_failure(donor_pair, patient_pair, _code)
+            read = [recall.failures(released, "around the released families")]
             fallbacks = db.run("Q12_fallbacks_for", {"loop_id": loop_id})
             rows = _dedupe(db.run("Q11_local_repair_candidates", {"released": released}))
             cands = _with_fallbacks(rows)
@@ -457,7 +462,7 @@ class MatchingAgent:
             "released": released, "found_ms": ms, "candidates": len(cands), "untouched_loops": locked,
             "recommended": _cand_json(best) if best else None,
             "alternatives": [_cand_json(c) for c in ranked[1:3]],
-            "fallback": fallbacks[0] if fallbacks else None, "queries": tr.ran,
+            "fallback": fallbacks[0] if fallbacks else None, "read": read, "queries": tr.ran,
         }
         if best and best.expected >= threshold:
             proposal["why"] = self._why(best)
@@ -465,18 +470,18 @@ class MatchingAgent:
             newcomers = [p for p in best.pairs if p not in released]
             db.event(self.name, f"Re-planned only the pairs around the break: {len(cands)} candidate loops through the "
                                 f"released pairs, best found in {ms / 1000:.1f} s. Other {locked} loops untouched. "
-                                f"Waiting for coordinator approval.", "plan")
+                                f"{recall.line(read[0])}. Waiting for coordinator approval.", "plan")
             decide(self.name, "propose_repair",
                    f"Recommend {_route(best.pairs)} (expected {best.expected:.1f} of {len(best.pairs)})"
                    + (f"; {', '.join(newcomers)} joins" if newcomers else ""),
-                   [("Loop", "loop_id", loop_id), ("Failure", "failure_id", fid)])
+                   [("Loop", "loop_id", loop_id), ("Failure", "failure_id", fid)], read=read)
             proposal["task_id"] = task
         else:
             task = self._task("escalate", loop_id, proposal)
             db.event(self.name, f"No repair above {threshold} expected transplants for {loop_id}. Escalated to the "
                                 f"exchange coordinator with {len(cands)} options.", "warn")
             decide(self.name, "escalate", "No repair reaches the threshold; a person decides.",
-                   [("Loop", "loop_id", loop_id), ("Failure", "failure_id", fid)])
+                   [("Loop", "loop_id", loop_id), ("Failure", "failure_id", fid)], read=read)
             proposal["task_id"] = task
         db.raw("MATCH (p:Pair {pair_id: $p}) SET p.priority = coalesce(p.priority, 0) + 0.2", {"p": patient_pair})
         return proposal
@@ -565,6 +570,10 @@ class MatchingAgent:
         avoid_sets = [set(a) for a in (avoid or [])]
         avoid_sets += [set(r["a"]) for r in db.raw("MATCH (p:Pair) WHERE p.pair_id IN $ids AND p.avoid IS NOT NULL RETURN p.avoid AS a",
                                                    {"ids": waiting}) if r["a"]]
+        read = [recall.failures(waiting, "around them")]
+        if avoid_sets:  # repairs a person declined: never proposed again for these families
+            read.append(recall.item("declined repair" + ("s" if len(avoid_sets) > 1 else ""), "episodic", COORDINATOR,
+                                    len(avoid_sets), "not proposed again", [" → ".join(sorted(a)) for a in avoid_sets]))
         rows = [r for r in _dedupe(db.run("Q11_local_repair_candidates", {"released": waiting})) if set(r["pairs"]) not in avoid_sets]
         names = ", ".join(f"{_city(p)} {p}" for p in waiting)
         if not rows:
@@ -582,7 +591,7 @@ class MatchingAgent:
             db.event(self.name, f"Re-matched {', '.join(_city(p) + ' ' + p for p in l['pairs'] if p in waiting)} into {l['loop_id']} "
                                 f"({_route(l['pairs'])}, expected {l['expected_tx']} of {len(l['pairs'])}). Offers sent.", "plan")
             decide(self.name, "rematch", f"{_route(l['pairs'])} for families released by a failed loop",
-                   [("Loop", "loop_id", l["loop_id"])])
+                   [("Loop", "loop_id", l["loop_id"])], read=read)
         matched = [p for l in loops for p in l["pairs"]]
         db.raw("MATCH (p:Pair) WHERE p.pair_id IN $ids SET p.needs_rematch = false, p.avoid = null", {"ids": matched})
         return loops

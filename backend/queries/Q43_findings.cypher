@@ -8,6 +8,6 @@ WITH f, collect(DISTINCT {result_id: r.result_id, value: r.value, at: r.at}) AS 
 RETURN f.finding_id AS finding_id, f.at AS at, f.week AS week, f.stage AS stage, f.previous_stage AS previous_stage,
        f.text AS text, f.value AS value, f.slope_per_year AS slope_per_year, f.weeks_to_next AS weeks_to_next,
        f.kind AS kind, f.trace AS trace, f.model AS model, f.safety_net AS safety_net, f.action AS action, f.due AS due,
-       readings, handoffs
+       f.read AS read, readings, handoffs
 ORDER BY at DESC
 LIMIT $limit

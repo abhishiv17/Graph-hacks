@@ -90,6 +90,21 @@ def test_week_one_the_agents_act_and_form_a_swap_without_a_click():
     assert all(pid in j["places"] for l in j["why"] for pid in (l["from_pair"], l["to_pair"]))
 
 
+def test_each_agent_says_what_it_read_and_who_wrote_it():
+    """Shared memory, visibly used: the coordinator reads the health watch's beliefs, the health watch reads the stage
+    it remembered and its playbook, and the scheduler, clerk and liaison pick up the health watch's tasks."""
+    j = c.get("/api/personas/sunita").json()
+    coord = next(f for f in j["findings"] if f["kind"] == "decision")
+    read = {x["memory"]: x for x in coord["read"]}
+    assert read["beliefs"]["written_by"] == "Health watch" and read["beliefs"]["n"] >= 2
+    assert read["failed-link memories for this patient"]["written_by"] == "Crossmatch coordinator"
+    watch = next(f for f in j["findings"] if f["kind"] == "stage_change" and f["read"])
+    kinds = {x["kind"]: x for x in watch["read"]}
+    assert kinds["semantic"]["memory"] == "remembered stage" and kinds["procedural"]["n"] == 4
+    picked = [h for h in j["handoffs"] if h["status"] == "done"]
+    assert picked and all(h["read"].startswith("Picked up the Health watch's task") for h in picked)
+
+
 def test_sunita_reaches_a_transplant_one_step_a_week():
     actions = []
     for _ in range(6):

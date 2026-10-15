@@ -28,6 +28,12 @@ def test_break_and_repair():
     assert prop["kind"] == "approve_repair"
     assert prop["recommended"]["pairs"] == ["P-0154", "P-0211", "P-0377"]
     assert prop["fallback"]["pairs"] == ["P-0154", "P-0211"]
+    # Before searching, the matching agent read the crossmatch coordinator's failure memory: the link that just failed.
+    seen = prop["read"][0]
+    assert seen["written_by"] == "Crossmatch coordinator" and seen["n"] >= 1
+    assert any("P-0211 → P-0388" in x for x in seen["detail"])
+    assert any(l.startswith("Read 1 failed-link") or l.startswith("Read 2 failed-link")
+               for x in d["decisions"] if x["action"] == "propose_repair" for l in x["read"])
 
     new = c.post(f"/api/tasks/{prop['task_id']}/approve", json={"choice": "recommended"}).json()
     d2 = c.get(f"/api/loops/{new['loop_id']}").json()

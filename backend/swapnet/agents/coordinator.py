@@ -15,7 +15,7 @@ import json
 import time
 
 from swapnet import personas
-from swapnet.agents import ask, core
+from swapnet.agents import ask, core, recall
 from swapnet.graph import db, publish
 
 NAME = "Coordinator agent"
@@ -69,12 +69,15 @@ def _waiting(organ: str) -> int:
 
 # ---------------------------------------------------------------- what the agent sees
 
-def state(p: dict, now: int) -> dict:
-    """The patient's situation, read from the three graphs, plus what the rules expect this week (`due`)."""
+def state(p: dict, now: int, read: list[dict] | None = None) -> dict:
+    """The patient's situation, read from the three graphs, plus what the rules expect this week (`due`). Each memory
+    it reads is listed in `read` (who wrote it and what it is used for), so the page can show the agents coordinating."""
     from swapnet.agents import health
+    read = [] if read is None else read
     pid, mg = p["id"], personas.memory_graph(p["id"])
     facts = {f["key"]: f for f in db.run("Q42_current_facts", {"persona_id": pid}, graph=mg)}
     recent = db.run("Q43_findings", {"persona_id": pid, "limit": 4}, graph=mg)
+    failed = db.run("Q35_failure_memory", {"pair_id": p["pair_id"]})
     pair = db.raw("MATCH (pp:Pair {pair_id: $id}) RETURN pp.status AS s, coalesce(pp.urgent, false) AS u, pp.searched_pool AS n",
                   {"id": p["pair_id"]})[0]
     c = health.case(p["pair_id"])
@@ -88,8 +91,32 @@ def state(p: dict, now: int) -> dict:
                    "searched_before": pair["n"] is not None},
           # Memory: the last things the agents noticed or did, so this week's choice builds on them.
           "remembered": [f"{_date(f['at'])}: {f['text'][:160]}" for f in recent[:3]]}
+    if failed:  # links a lab test ruled out; searches never propose them again
+        st["failed_links"] = [f"{f['donor_pair']} → {f['patient_pair']}: {f['detail'] or f['cause']}" for f in failed[:4]]
+    if facts:
+        writers = recall.who("Coordinator agent" if k == "swap" else "Health watch" for k in facts)
+        read.append(recall.item("beliefs", "semantic", writers, len(facts), "the stage and trend decide whether a swap is urgent",
+                                [f["text"] for k, f in sorted(facts.items()) if k in ("stage", "trend", "swap")]))
+    if recent[:3]:
+        writers = recall.who(recall.FINDING_WRITER.get(f["kind"], "an agent") for f in recent[:3])
+        read.append(recall.item("recent findings", "episodic", writers, len(recent[:3]), "this week's step builds on them",
+                                [f"{_date(f['at'])}: {f['text'][:90]}" for f in recent[:3]]))
+    if pair["n"] is not None and not c:  # only matters while the patient still needs a swap
+        read.append(recall.item("pool size from the last search", "episodic", "Coordinator agent", 1,
+                                "no repeat search while the pool is unchanged" if pair["n"] == waiting else
+                                f"the pool changed ({pair['n']} → {waiting} waiting families), so search again",
+                                [f"{pair['n']} waiting families then, {waiting} now"]))
+    read.append(recall.item(f"failed-link memor{'y' if len(failed) == 1 else 'ies'} for this patient", "episodic",
+                            "Crossmatch coordinator", len(failed),
+                            "never proposed again: searches only walk live links" if failed else "nothing to skip",
+                            st.get("failed_links")))
     if c:
         missing = _missing(c) if c["status"] == "committee" else []
+        asked = [m for m in missing if m["requested_at"]]
+        if missing:
+            read.append(recall.item("paper requests", "shared", "Committee clerk", len(asked),
+                                    "already requested, so not asked twice" if asked else "none yet: these papers can be requested",
+                                    [f"{m['pair_id']}: {m['paper'].replace('_', ' ')}" for m in (asked or missing)]))
         st["swap"] = {"loop_id": c["loop_id"], "status": c["status"], "route": c["route"], "families": c["pairs"],
                       "surgery_on": _date(c["surgery_at"]) if c["surgery_at"] else None,
                       "missing_papers": [{"family": m["pair_id"], "paper": m["paper"].replace("_", " "),
@@ -267,7 +294,8 @@ def _due_tool(st: dict) -> str:
 
 def run_week(p: dict, now: int, week: int, trigger: str = "weekly review") -> dict:
     """Let the model choose this week's step for the patient; fall back to the rules when it can't."""
-    st = state(p, now)
+    read: list[dict] = []
+    st = state(p, now, read)
     tools = CaseTools(p, now, week, by="model")
     reason, model, note = "", None, None
     status = ask.status()
@@ -316,11 +344,12 @@ def run_week(p: dict, now: int, week: int, trigger: str = "weekly review") -> di
         reason = ""
     text = (reason or summary) if not note else f"{summary} {note}"
     personas.remember_decision(p["id"], at=now, week=week, text=f"{NAME}: {text}", trace=tools.trace, model=model,
-                               reason=reason, safety_net=note, due=st["due"], action=did["tool"] if did else "wait")
-    core.decide(NAME, did["tool"] if did else "wait", (reason or summary)[:500], [("Pair", "pair_id", p["pair_id"])], pair_id=p["pair_id"])
+                               reason=reason, safety_net=note, due=st["due"], action=did["tool"] if did else "wait", read=read)
+    core.decide(NAME, did["tool"] if did else "wait", (reason or summary)[:500], [("Pair", "pair_id", p["pair_id"])],
+                pair_id=p["pair_id"], read=read)
     db.event(NAME, f"{p['pair_id']} ({p['name']}): {summary}", "plan" if did else "info")
     return {"action": did["tool"] if did else "wait", "summary": summary, "reason": reason, "model": model,
-            "safety_net": note, "trace": tools.trace}
+            "safety_net": note, "trace": tools.trace, "read": read}
 
 
 def _summary(tools: CaseTools, did: dict | None) -> str:

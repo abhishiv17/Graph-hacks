@@ -15,7 +15,7 @@ import json
 import time
 
 from swapnet import config, personas
-from swapnet.agents import core
+from swapnet.agents import core, recall
 from swapnet.graph import db, publish
 
 DAY_MS = personas.DAY_MS
@@ -182,19 +182,33 @@ class HealthWatch:
         else:
             text = f"{trend}{since}. Still {label(organ, a['stage'])}; already acted on it, so no repeat alerts."
         kind = "stage_change" if a["stage"] != before else "reading"
+        # What it read before deciding: the stage it remembers, the live swap, and (if it acts) the stage's playbook.
+        read = [recall.item("remembered stage", "semantic", "Health watch", 1 if before else 0,
+                            "the new stage is more urgent, so its playbook runs" if acts else
+                            "the transplant is booked, so nothing new is handed out" if worse else
+                            "not more urgent than the remembered stage, so no repeat alerts",
+                            [f"{facts['stage']['text']} (since {_date(facts['stage']['at'])})"] if before else [])]
+        if c:
+            read.append(recall.item("live swap", "shared", "Matching agent and Coordinator agent", 1,
+                                    "the family's messages mention the swap" if acts else "checked before handing anything out",
+                                    [f"{c['loop_id']} ({c['route']}), {c['status']}"]))
+        steps = db.run("Q44_playbook", {"persona_id": pid, "stage": a["stage"]}, graph=personas.memory_graph(pid)) if acts else []
+        if steps:
+            read.append(recall.item(f"{label(organ, a['stage'])} playbook steps", "procedural", "the care team (seeded playbook)",
+                                    len(steps), "one task per step, handed to its agent",
+                                    [f"{s['agent']}: {s['what'] or s['action']}" for s in steps]))
         fid = personas.remember_finding(pid, kind=kind, stage=a["stage"], previous=before, a=a, at=last["at"], week=last["week"],
-                                        text=text, readings=rows[-4:], triggered=a["stage"] if acts else None)
+                                        text=text, readings=rows[-4:], triggered=a["stage"] if acts else None, read=read)
         personas.update_facts(pid, a, last["at"])
         db.event(self.name, f"{p['pair_id']} ({p['name']}): {text}", "warn" if worse else "info")
         tasks = []
         if acts:
-            core.decide(self.name, "stage_change", text, [("Pair", "pair_id", p["pair_id"])], pair_id=p["pair_id"])
-            tasks = self._hand_off(p, fid, a)
+            core.decide(self.name, "stage_change", text, [("Pair", "pair_id", p["pair_id"])], pair_id=p["pair_id"], read=read)
+            tasks = self._hand_off(p, fid, a, steps)
         return {"finding_id": fid, "kind": kind, "stage": a["stage"], "previous_stage": before, "text": text, "tasks": tasks}
 
-    def _hand_off(self, p: dict, fid: str, a: dict) -> list[str]:
-        """Read the stage's playbook from memory and give each step to its agent as a Task in the exchange graph."""
-        steps = db.run("Q44_playbook", {"persona_id": p["id"], "stage": a["stage"]}, graph=personas.memory_graph(p["id"]))
+    def _hand_off(self, p: dict, fid: str, a: dict, steps: list[dict]) -> list[str]:
+        """Give each step of the stage's playbook (read from memory) to its agent as a Task in the exchange graph."""
         out = []
         for s in steps:
             tid = core._id("T")
@@ -224,7 +238,11 @@ def run_handoffs() -> list[str]:
         step = json.loads(r["payload"])
         fn = {"book": Scheduler().book, "chase_documents": _chase_documents, "message": _family_message}.get(r["action"])
         result = fn(p, step) if fn else f"No handler for {r['action']}"
-        db.raw("MATCH (t:Task {task_id: $t}) SET t.status = 'done', t.done_at = timestamp(), t.result = $r", {"t": r["tid"], "r": result})
+        # The agent acts on another agent's memory: the task the health watch wrote from its finding and playbook.
+        read = (f"Picked up the Health watch's task: step {step.get('step', r['step'])} of the "
+                f"{personas.stage_label(p['organ'], step.get('stage'))} playbook, from finding {r['f']}")
+        db.raw("MATCH (t:Task {task_id: $t}) SET t.status = 'done', t.done_at = timestamp(), t.result = $r, t.read = $read",
+               {"t": r["tid"], "r": result, "read": read})
         personas.handoff_mirror(p["id"], r["f"], r["tid"], r["agent"], r["action"], "done", result)
         db.event(r["agent"], f"{p['pair_id']}: {result}", "info")
         out.append(f"{r['agent']}: {result}")

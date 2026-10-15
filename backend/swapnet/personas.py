@@ -287,12 +287,13 @@ def record_search(pid: str, *, at: int, week: int, depth: int, found: int, total
 
 
 def remember_decision(pid: str, *, at: int, week: int, text: str, trace: list[dict], model: str | None, reason: str,
-                      safety_net: str | None, due: str, action: str) -> str:
-    """The coordinator agent's choice for the week, with the model's reason and every tool call, in the patient's memory."""
+                      safety_net: str | None, due: str, action: str, read: list[dict] | None = None) -> str:
+    """The coordinator agent's choice for the week, with the model's reason, every tool call and the memories it read
+    first, in the patient's memory."""
     rs = readings(pid)
     a = assess(get(pid)["organ"], [(r["at"], r["value"]) for r in rs])
     fid = remember_finding(pid, kind="decision", stage=a["stage"], previous=a["stage"], a=a, at=at, week=week, text=text,
-                           readings=[], triggered=None)
+                           readings=[], triggered=None, read=read)
     db.raw("MATCH (f:Finding {finding_id: $f}) SET f.trace = $t, f.model = $m, f.reason = $r, f.safety_net = $s, f.due = $d, f.action = $a",
            {"f": fid, "t": json.dumps(trace, default=str), "m": model, "r": reason, "s": safety_net, "d": due, "a": action},
            graph=memory_graph(pid))
@@ -326,7 +327,7 @@ def _move_messages(pid: str) -> int:
 
 
 def remember_finding(pid: str, *, kind: str, stage: str, previous: str | None, a: dict, at: int, week: int, text: str,
-                     readings: list[dict], triggered: str | None) -> str:
+                     readings: list[dict], triggered: str | None, read: list[dict] | None = None) -> str:
     fid = _id("F")
     db.run("Q45_remember_finding", {
         "persona_id": pid, "finding_id": fid, "at": at, "week": week, "kind": kind, "stage": stage, "previous_stage": previous,
@@ -334,7 +335,9 @@ def remember_finding(pid: str, *, kind: str, stage: str, previous: str | None, a
         "readings": [{"result_id": r["result_id"], "value": r["value"], "at": r["at"]} for r in readings],
         "triggered": triggered or "",
     }, graph=memory_graph(pid))
-    db.raw("MATCH (f:Finding {finding_id: $f}) SET f.created = timestamp()", {"f": fid}, graph=memory_graph(pid))
+    # What the agent read from memory before writing this (agents/recall.py), kept with the finding.
+    db.raw("MATCH (f:Finding {finding_id: $f}) SET f.created = timestamp(), f.read = $read",
+           {"f": fid, "read": json.dumps(read) if read else None}, graph=memory_graph(pid))
     return fid
 
 
@@ -415,6 +418,7 @@ def journey(pid: str) -> dict:
         f["readings"] = [r for r in f["readings"] if r.get("result_id")]
         f["handoffs"] = [h for h in f["handoffs"] if h.get("task_id")]
         f["trace"] = json.loads(f["trace"]) if f.get("trace") else None
+        f["read"] = json.loads(f["read"]) if f.get("read") else None
     for q in searches:
         q["loops"] = json.loads(q["loops"]) if q.get("loops") else []
     # Where every family the page mentions is, for the small map.

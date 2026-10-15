@@ -4,5 +4,5 @@ WHERE (x:Loop AND x.loop_id IN $loop_ids) OR (x:Failure AND x.failure_id IN $fai
 OPTIONAL MATCH (dc)-[:MADE_BY]->(ag:Agent)
 OPTIONAL MATCH (dc)-[:APPROVED_BY]->(hu:Agent)
 RETURN DISTINCT dc.decision_id AS id, dc.action AS action, dc.rationale AS rationale, dc.at AS at,
-       ag.name AS made_by, hu.name AS approved_by
+       ag.name AS made_by, hu.name AS approved_by, dc.read AS read
 ORDER BY at DESC

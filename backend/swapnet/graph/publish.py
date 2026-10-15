@@ -61,6 +61,17 @@ def publish(pr: Pair, build_edges: bool = True) -> dict:
     ok, why = can_publish(pr)
     if not ok:
         return {"published": False, "reason": why}
+    rows = db.run("Q01_upsert_pair", exchange_params(pr))
+    db.raw("MATCH (p:Pair {pair_id: $id}) SET p.published = true", {"id": pr.pair_id},
+           graph=config.hospital_graph(pr.hospital))
+    edges = build(pr.pair_id, pr.organ) if build_edges else 0
+    if not rows:
+        return {"published": False, "reason": "already registered in the shared pool"}
+    return {"published": True, "edges": edges}
+
+
+def exchange_params(pr: Pair, expected_version: int = 0) -> dict:
+    """Q01's parameters: only what matching needs, de-identified."""
     h = next(x for x in config.hospitals()["hospitals"] if x["code"] == pr.hospital)
     docs_missing = [k for k, v in pr.documents.items() if v != "verified"]
     pair = {
@@ -69,21 +80,15 @@ def publish(pr: Pair, build_edges: bool = True) -> dict:
         "approval_opened": _opened(pr), "approval_due": _opened(pr) + config.hospitals()["approval_target_days"] * DAY_MS,
         "priority": 0.0, "failed_count": 0,
     }
-    rows = db.run("Q01_upsert_pair", {
-        "pair_id": pr.pair_id, "expected_version": 0, "pair": pair,
+    return {
+        "pair_id": pr.pair_id, "expected_version": expected_version, "pair": pair,
         "hospital": {"code": h["code"], "city": h["city"], "lat": h["lat"], "lon": h["lon"], "lab": h["lab"]},
         "donor": pr.donor, "patient": pr.patient,
         # Untyped loci are invisible to the virtual test; the lab still sees them.
         "antigens": [a for a in pr.antigens if a["locus"] not in pr.donor["untyped_loci"]],
         "antibodies": pr.antibodies,
         "liver": [pr.liver] if pr.liver else [],
-    })
-    db.raw("MATCH (p:Pair {pair_id: $id}) SET p.published = true", {"id": pr.pair_id},
-           graph=config.hospital_graph(pr.hospital))
-    edges = build(pr.pair_id, pr.organ) if build_edges else 0
-    if not rows:
-        return {"published": False, "reason": "already registered in the shared pool"}
-    return {"published": True, "edges": edges}
+    }
 
 
 def build(pair_id: str, organ: str | None = None) -> int:
