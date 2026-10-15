@@ -1,0 +1,45 @@
+# India-first parameters for the synthetic kidney pool.
+# Sources are in research/synthetic_data.md. Values marked "assumption" are ours.
+
+abo:                      # Agrawal 2014, multicentre Indian donors
+  O: 0.371
+  B: 0.323
+  A: 0.229
+  AB: 0.077
+
+pra_bands:                # assumption (Indian PRA positivity 15-23%); Saidman uses 0.70/0.20/0.10
+  low:  {share: 0.75, cpra: [0, 20],   positive_xm: 0.05}
+  mid:  {share: 0.17, cpra: [21, 80],  positive_xm: 0.45}
+  high: {share: 0.08, cpra: [81, 99],  positive_xm: 0.90}
+
+recipient_male_share: 0.80     # AIIMS 2013-22
+donor_female_share: 0.79
+relations:                      # derived from AIIMS data
+  female: {wife: 0.36, mother: 0.50, sister: 0.10, daughter: 0.04}
+  male:   {father: 0.54, brother: 0.30, husband: 0.12, son: 0.04}
+
+# HLA antigen frequencies per locus. PLACEHOLDER approximations for India.
+# Replace with DKMS-BMST Indian frequencies (Frontiers 2025) before reporting numbers.
+hla:
+  A:  {A1: 0.14, A2: 0.15, A3: 0.06, A11: 0.17, A24: 0.15, A26: 0.07, A33: 0.14, A68: 0.12}
+  B:  {B7: 0.08, B8: 0.07, B15: 0.10, B35: 0.15, B40: 0.13, B44: 0.07, B51: 0.11, B52: 0.10, B57: 0.08, B58: 0.11}
+  DR: {DR1: 0.06, DR3: 0.11, DR4: 0.07, DR7: 0.16, DR10: 0.06, DR11: 0.08, DR13: 0.10, DR14: 0.06, DR15: 0.30}
+  DQ: {DQ2: 0.25, DQ5: 0.22, DQ6: 0.25, DQ7: 0.18, DQ8: 0.10}
+
+dq_untyped_share: 0.30      # assumption: share of donors with DQ not typed in advance
+mfi_threshold: 2000         # antibodies at or above this count as unacceptable (Biro 2019)
+
+failure:                    # Ashlagi 2018 and UNOS refusal data
+  xm_positive_low_cpra: 0.10     # cPRA <= 90
+  xm_positive_high_cpra: 0.38    # cPRA > 90
+  untyped_dq_extra: 0.08         # assumption: extra failure risk per untyped DQ
+  offer_refusal: 0.15
+  withdrawal: 0.03
+
+arrivals_per_week: 3.5      # kidney, India; sweep 1-10
+departure_daily_hazard: 0.00238   # 1/420
+
+timing:                     # Ashlagi et al. 2018 "delay" regime, used for multi-centre pools
+  offer_days: 2             # offer stage before both teams accept
+  crossmatch_days: 7        # physical crossmatch after acceptance
+  match_run_every_days: 7   # weekly match runs (UNOS moved from monthly to weekly)

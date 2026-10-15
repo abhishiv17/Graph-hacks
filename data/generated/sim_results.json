@@ -1,0 +1,184 @@
+{
+  "runs": 20,
+  "weeks": 52,
+  "policies": [
+    "alone_2way",
+    "shared_2way",
+    "shared_3way_blind",
+    "swapnet"
+  ],
+  "results": {
+    "alone_2way": {
+      "title": "Each hospital alone",
+      "subtitle": "2-way swaps only (today)",
+      "transplants": [
+        141.8,
+        135.2,
+        148.4
+      ],
+      "o_matched_pct": [
+        9.1,
+        8.6,
+        9.6
+      ],
+      "hs_matched_pct": [
+        10.2,
+        8.5,
+        11.9
+      ],
+      "median_weeks": [
+        3.1,
+        2.9,
+        3.3
+      ],
+      "tests_wasted": [
+        42.5,
+        38.7,
+        46.2
+      ],
+      "loops_repaired": [
+        0,
+        0.0,
+        0.0
+      ],
+      "arrived": [
+        538.8,
+        527.4,
+        550.1
+      ]
+    },
+    "shared_2way": {
+      "title": "Shared pool",
+      "subtitle": "2-way swaps only",
+      "transplants": [
+        222.7,
+        215.7,
+        229.7
+      ],
+      "o_matched_pct": [
+        18.2,
+        16.9,
+        19.4
+      ],
+      "hs_matched_pct": [
+        29.1,
+        26.5,
+        31.7
+      ],
+      "median_weeks": [
+        3.5,
+        3.3,
+        3.6
+      ],
+      "tests_wasted": [
+        75.8,
+        70.7,
+        81.0
+      ],
+      "loops_repaired": [
+        0,
+        0.0,
+        0.0
+      ],
+      "arrived": [
+        538.8,
+        527.4,
+        550.1
+      ]
+    },
+    "shared_3way_blind": {
+      "title": "Shared + 3-way",
+      "subtitle": "ignores test failures",
+      "transplants": [
+        248.7,
+        240.7,
+        256.7
+      ],
+      "o_matched_pct": [
+        21.5,
+        20.2,
+        22.8
+      ],
+      "hs_matched_pct": [
+        43.3,
+        39.9,
+        46.7
+      ],
+      "median_weeks": [
+        3.8,
+        3.7,
+        3.9
+      ],
+      "tests_wasted": [
+        151.6,
+        141.1,
+        162.0
+      ],
+      "loops_repaired": [
+        0,
+        0.0,
+        0.0
+      ],
+      "arrived": [
+        538.8,
+        527.4,
+        550.1
+      ]
+    },
+    "swapnet": {
+      "title": "KindRed",
+      "subtitle": "shared, 3-way, plans for failure, repairs live",
+      "transplants": [
+        250.2,
+        242.0,
+        258.3
+      ],
+      "o_matched_pct": [
+        21.1,
+        19.8,
+        22.4
+      ],
+      "hs_matched_pct": [
+        38.9,
+        36.1,
+        41.7
+      ],
+      "median_weeks": [
+        3.1,
+        3.0,
+        3.2
+      ],
+      "tests_wasted": [
+        129.8,
+        123.0,
+        136.7
+      ],
+      "loops_repaired": [
+        25.4,
+        23.0,
+        27.7
+      ],
+      "arrived": [
+        538.8,
+        527.4,
+        550.1
+      ]
+    }
+  },
+  "validation": {
+    "saidman_2way": [
+      46.6,
+      42.1,
+      51.1
+    ],
+    "saidman_3way": [
+      57.7,
+      52.8,
+      62.6
+    ],
+    "published_2way": 49.8,
+    "published_3way": 59.8
+  },
+  "seconds": 174,
+  "note": "Synthetic. Measured by the KindRed simulator; not a claim about real patients."
+}

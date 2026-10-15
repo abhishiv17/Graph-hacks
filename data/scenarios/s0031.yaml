@@ -1,0 +1,5 @@
+# Demo scenario S-0031. The background pool seed was chosen so that this week's plan
+# contains the Hyderabad -> Bengaluru -> Kolkata loop; everything after that (the positive
+# lab test, the repair search, the ranking) is computed live, not scripted.
+seed: 3
+background_pairs: 150

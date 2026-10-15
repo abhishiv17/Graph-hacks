@@ -1,0 +1,23 @@
+# Intake agent offer policy per hospital. Rules are checked in order; first match wins.
+# Policies are data (procedural memory), not code.
+default:
+  hold_if_vxm_risk: false        # true = ask for a lab test before accepting a risky link
+  hold_if_docs_missing_beyond_window: true
+hospitals:
+  BLR: {hold_if_vxm_risk: true}
+
+# Matching agent thresholds
+matching:
+  max_loop: 3
+  repair_hops: 2                  # search around released pairs
+  escalate_below_expected: 1.0    # propose nothing below this; escalate to a person
+  priority_bonus:
+    blood_o_patient: 0.15
+    high_cpra: 0.25               # cPRA > 85
+    failed_before: 0.20
+
+playbooks:
+  - when: positive crossmatch on a 3-way loop that has a stored 2-way fallback
+    then: keep the 2-way fallback ready, search 2 hops around the released pairs for a full repair, propose the best one for approval
+  - when: no repair reaches the threshold
+    then: escalate to the exchange coordinator with the options and their facts

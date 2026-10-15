@@ -1,0 +1,424 @@
+"use client";
+import Link from "next/link";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import PoolMap, { linkKey } from "@/components/app/PoolMap";
+import CypherPanel from "@/components/CypherPanel";
+import { PageIntro, Term } from "@/components/app/Help";
+import { EmptyState, ErrorState, Field, Loading, StatusPill, Tag } from "@/components/app/ui";
+import { Icon } from "@/components/app/icons";
+import { useLoop, usePairs } from "@/lib/data/hooks";
+import { useAction, useData, useResource } from "@/lib/data/source";
+import type { AgentState, Pool, PoolLink } from "@/lib/data/types";
+import { loopRoute, pct, statusOf, type PairRow } from "@/lib/data/derive";
+
+export default function PoolPage() {
+  return <Suspense fallback={<Loading rows={6} />}><LivePool /></Suspense>;
+}
+
+function LivePool() {
+  const res = usePairs();
+  const { mode } = useData();
+  const act = useAction();
+  const router = useRouter();
+  const params = useSearchParams();
+  const [selected, setSelected] = useState<string | null>(params.get("pair"));
+  const [focusLoop, setFocusLoop] = useState<string | null>(null);
+  const [linkSel, setLinkSel] = useState<string | null>(null);
+  const [citySel, setCitySel] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [hospital, setHospital] = useState("");
+  const [filter, setFilter] = useState<"all" | "in_loop" | "waiting">("all");
+  useEffect(() => { const p = params.get("pair"); if (p) setSelected(p); }, [params]);
+
+  const pool = res.data?.pool;
+  const rows = res.data?.rows ?? [];
+  const tasks = new Set((pool?.open_tasks ?? []).map((t) => t.loop_id));
+  const loops = useMemo(() => [...(pool?.loops ?? [])].sort((a, b) =>
+    Number(tasks.has(b.loop_id)) - Number(tasks.has(a.loop_id)) ||
+    Number(b.status === "broken") - Number(a.status === "broken") ||
+    Number(b.status === "testing") - Number(a.status === "testing") ||
+    b.pairs.length - a.pairs.length), [pool]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sel = rows.find((r) => r.pair_id === selected) ?? null;
+  const shown = focusLoop ?? sel?.loop?.loop_id ?? loops[0]?.loop_id ?? null;
+  const focus = loops.find((l) => l.loop_id === shown);
+
+  const filtered = useMemo(() => rows.filter((r) => {
+    const s = q.trim().toLowerCase();
+    if (s && !(r.pair_id.toLowerCase().includes(s) || r.city.toLowerCase().includes(s) || r.loop?.loop_id.toLowerCase().includes(s))) return false;
+    if (hospital && r.code !== hospital) return false;
+    if (filter === "in_loop" && !r.loop) return false;
+    if (filter === "waiting" && r.loop) return false;
+    return true;
+  }), [rows, q, hospital, filter]);
+
+  const pick = (r: PairRow) => { setSelected(r.pair_id); setFocusLoop(null); router.replace(`/pool?pair=${r.pair_id}`, { scroll: false }); };
+  const t = pool?.tiles;
+  const agents = useResource<AgentState>("agents", (a) => a.agents(), 5000);
+  const links = pool?.links ?? [];
+  const chosenLink = links.find((l) => linkKey(l) === linkSel) ?? null;
+  const chennaiAdded = !!pool?.demo?.chennai_added;
+  const bridges = new Set((pool?.bridges ?? []).map((b) => b.pair_id));
+  const pickLoop = (id: string) => { setFocusLoop(id); setLinkSel(null); setCitySel(null); };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
+        <div>
+          <h1 className="font-display text-[2.1rem] leading-none" style={{ color: "var(--ink-strong)" }}>Live pool</h1>
+          <p className="mt-2 text-sm muted">{pool ? `${pool.hospitals.length} hospitals · ${t?.pairs} families registered · this week's plan ${pool.plan?.run_id ?? "–"}` : "Connecting…"}</p>
+        </div>
+        <div className="flex flex-wrap items-start gap-3">
+          <ActionButton label={act.busy === "reset" ? "Restarting…" : "Restart demo"} icon="reset" disabled={!!act.busy}
+            hint="Rebuild the 153 synthetic families and run this week's match again."
+            onClick={() => { if (confirm("Restart the demo? Every swap, lab result and approval goes back to the starting point.")) act.run("reset", (a) => a.reset()); }} />
+          <ActionButton label={act.busy === "chennai" ? "Adding…" : chennaiAdded ? "Chennai family added" : "Add a new family (Chennai)"} disabled={!!act.busy || chennaiAdded}
+            hint="A new patient and donor register in Chennai. The intake agent checks the legal rules and adds their links to the graph."
+            onClick={() => act.run("chennai", (a) => a.addChennai())} />
+          <ActionButton primary label={act.busy === "plan" ? "Matching…" : "Re-run matching"} disabled={!!act.busy || mode === "offline"}
+            hint="Find every possible swap among families still waiting, then let the optimiser choose the best set."
+            onClick={() => act.run("plan", (a) => a.runPlan())} />
+        </div>
+      </div>
+      {act.error && <div className="mb-4"><ErrorState error={new Error(act.error)} what="that action" /></div>}
+
+      <PageIntro id="pool" what={<>The shared pool of families from every hospital. Each dot is a hospital. Each line is one planned <Term k="link">donation</Term>: a donor from one family gives a kidney to the patient of another family. Lines that close a ring make one <Term k="loop">swap loop</Term>.</>}
+        steps={[
+          <>Scroll or pinch to zoom; drag to move around the map.</>,
+          <>Click any single line to see that donation: who gives to whom, how likely it is to hold, and the reasons stored in the graph.</>,
+          <>Click a hospital to see only its families&rsquo; donations, or pick a swap from the list on the right.</>,
+        ]} />
+
+      <dl className="mb-4 grid grid-cols-2 lg:grid-cols-4 border rounded-[10px] overflow-hidden" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
+        {([
+          ["Families waiting", t?.waiting, <>Not in any planned swap yet</>],
+          [<Term key="s" k="loop">Swaps planned</Term>, t?.loops, <>{links.length} donations between families</>],
+          [<Term key="e" k="expected">Expected transplants</Term>, t?.expected_tx, <>out of {t?.planned_tx ?? "–"} if every test passed</>],
+          ["Hardest to match", t?.highly_sensitised, <>patients with <Term k="cpra">cPRA</Term> above 85%</>],
+        ] as [React.ReactNode, React.ReactNode, React.ReactNode][]).map(([k, v, sub], i) => (
+          <div key={i} className={`px-4 py-3 ${i % 2 ? "border-l" : ""} ${i > 1 ? "border-t lg:border-t-0" : ""} ${i === 2 ? "lg:border-l" : ""}`} style={{ borderColor: "var(--line)" }}>
+            <dt className="label">{k}</dt>
+            <dd className="mt-1 text-2xl font-semibold tnum" style={{ color: "var(--ink-strong)" }}>{v ?? "–"}</dd>
+            <dd className="text-xs muted mt-0.5">{sub}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {res.error && !res.data ? <ErrorState error={res.error} onRetry={res.reload} what="the pool" /> : (
+        <section className="canvas-dark overflow-hidden" aria-label="Live map of planned donations">
+          <div className="grid lg:grid-cols-[minmax(0,1.5fr)_minmax(340px,1fr)]">
+            <div className="relative">
+              {!pool ? <div className="h-[560px] lg:h-[680px]" /> : (
+                <PoolMap className="h-[560px] lg:h-[680px]" hospitals={pool.hospitals} loops={pool.loops} links={links}
+                  focusLoop={chosenLink ? chosenLink.loop_id : citySel ? null : shown} selectedLink={linkSel} selectedCity={citySel}
+                  onSelectLink={(k) => { setLinkSel(k); setCitySel(null); }}
+                  onSelectCity={(c) => { setCitySel((x) => (x === c ? null : c)); setLinkSel(null); }}
+                  onBackground={() => { setLinkSel(null); setCitySel(null); }} />
+              )}
+              <AgentPulse s={agents.data} />
+            </div>
+
+            <div className="border-t lg:border-t-0 lg:border-l flex flex-col min-h-0 lg:max-h-[680px]" style={panelBorder}>
+              {chosenLink && pool ? (
+                <LinkPanel link={chosenLink} pool={pool} onClose={() => setLinkSel(null)} onStep={(k) => setLinkSel(k)} />
+              ) : citySel && pool ? (
+                <CityPanel code={citySel} pool={pool} onClose={() => setCitySel(null)} onPickLoop={pickLoop} onPickLink={(k) => setLinkSel(k)} />
+              ) : (
+                <>
+                  {focus && (
+                    <div className="p-5 sm:p-6 border-b" style={panelBorder}>
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8FAF9D" }}>Swap in focus · bright lines on the map</p>
+                      <div className="mt-2 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-display text-2xl leading-tight" style={{ color: "#FFFFFF" }}>{focus.loop_id} <span className="text-base" style={{ color: "#A9BFB2" }}>· {focus.kind}</span></p>
+                          <p className="mt-1 text-[0.95rem]" style={{ color: "#CFE3D6" }}>{loopRoute(focus)}</p>
+                        </div>
+                        <DarkStatus status={focus.status} repair={tasks.has(focus.loop_id)} />
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-4 text-sm" style={{ color: "#A9BFB2" }}>
+                        <div><span className="block font-display text-2xl tnum" style={{ color: "#F7F6F0" }}>{pct(focus.p_success)}</span><Term k="chance" dark>chance every link holds</Term></div>
+                        <div><span className="block font-display text-2xl tnum" style={{ color: "#F7F6F0" }}>{focus.expected_tx} <span className="text-base">of {focus.pairs.length}</span></span><Term k="expected" dark>expected transplants</Term>{focus.has_fallback && <> · has a <Term k="fallback" dark>fallback</Term></>}</div>
+                      </div>
+                      <Link href={`/swaps/${focus.loop_id}`} className="mt-5 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold"
+                            style={{ background: "var(--mint)", color: "var(--forest-deep)" }}>
+                        Lab tests and papers for this swap <Icon name="chevron" size={15} />
+                      </Link>
+                    </div>
+                  )}
+                  <p className="px-5 sm:px-6 pt-4 pb-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8FAF9D" }}>All planned swaps · {loops.length} · click one to light it up</p>
+                  <ul className="flex-1 overflow-y-auto max-h-[360px] lg:max-h-none px-2 sm:px-3 pb-3">
+                    {!pool ? <li className="px-3 py-2 text-sm" style={{ color: "#A9BFB2" }}>Loading…</li> : loops.map((l) => (
+                      <li key={l.loop_id}>
+                        <button className="w-full text-left flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-white/5"
+                                aria-pressed={shown === l.loop_id} style={{ background: shown === l.loop_id ? "rgba(166,216,181,0.12)" : undefined }}
+                                onClick={() => pickLoop(l.loop_id)}>
+                          <span className="h-2 w-2 rounded-full shrink-0" style={{ background: l.status === "broken" || tasks.has(l.loop_id) ? "#E08A80" : l.status === "testing" ? "#E6B566" : "#A6D8B5" }} aria-hidden="true" />
+                          <span className="font-semibold tnum text-sm w-14 shrink-0" style={{ color: "#F7F6F0" }}>{l.loop_id}</span>
+                          <span className="flex-1 truncate text-sm" style={{ color: "#B9CBBF" }}>{loopRoute(l)}</span>
+                          <span className="text-xs shrink-0" style={{ color: "#8FAF9D" }}>{statusOf(l.status, tasks.has(l.loop_id)).label}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <div className="mt-10 grid xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-8">
+        <section>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <h2 className="text-lg font-semibold mr-auto" style={{ color: "var(--ink-strong)" }}>Every registered family <span className="text-sm font-normal muted">· click one for details · <Term k="bridge">bridge</Term> = connects many possible swaps</span></h2>
+            <label className="flex items-center gap-2 rounded-full border px-3 py-1.5 bg-white" style={{ borderColor: "var(--line)" }}>
+              <Icon name="search" size={15} className="muted" /><span className="sr-only">Search families</span>
+              <input className="bg-transparent outline-none text-sm w-36" placeholder="Pair or city" value={q} onChange={(e) => setQ(e.target.value)} />
+            </label>
+            <label><span className="sr-only">Hospital</span>
+              <select className="input !rounded-full !py-1.5" value={hospital} onChange={(e) => setHospital(e.target.value)}>
+                <option value="">All hospitals</option>
+                {(pool?.hospitals ?? []).map((h) => <option key={h.code} value={h.code}>{h.city}</option>)}
+              </select>
+            </label>
+            <label><span className="sr-only">Status</span>
+              <select className="input !rounded-full !py-1.5" value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+                <option value="all">Any status</option>
+                <option value="in_loop">In a planned swap</option>
+                <option value="waiting">Waiting for a match</option>
+              </select>
+            </label>
+          </div>
+          {!res.data ? <Loading rows={6} /> : (
+            <div className="panel overflow-hidden">
+              <div className="max-h-[460px] overflow-auto">
+                <table className="table">
+                  <thead className="sticky top-0 z-10" style={{ background: "var(--surface)" }}><tr><th>Family (pair)</th><th>Hospital</th><th>Swap</th><th>Committee papers</th></tr></thead>
+                  <tbody>
+                    {filtered.map((r) => (
+                      <tr key={r.pair_id} aria-selected={r.pair_id === selected} tabIndex={0} className="cursor-pointer"
+                          onClick={() => pick(r)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(r); } }}>
+                        <td className="font-semibold tnum" style={{ color: "var(--ink-strong)" }}>{r.pair_id}{bridges.has(r.pair_id) && <span className="ml-2 align-middle"><Tag tone="sim" title="Bridge family: connects many possible swaps (betweenness centrality)">bridge</Tag></span>}</td>
+                        <td>{r.city}</td>
+                        <td>{r.loop ? <span className="text-sm">{r.loop.loop_id}</span> : <span className="muted text-sm">Waiting for a match</span>}</td>
+                        <td>{r.missing_docs ? <Tag tone="warn">{r.missing_docs} missing</Tag> : <span className="text-sm muted">Complete</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filtered.length === 0 && <p className="p-4 text-sm muted">No families match.</p>}
+              </div>
+            </div>
+          )}
+        </section>
+        <PairDetail row={sel} repairReady={!!sel?.loop && tasks.has(sel.loop.loop_id)} />
+      </div>
+      <div className="mt-10"><CypherPanel ran={pool?.queries} title="FalkorDB queries behind this screen" /></div>
+    </div>
+  );
+}
+
+function ActionButton({ label, hint, onClick, disabled, primary, icon }: { label: string; hint: string; onClick: () => void; disabled?: boolean; primary?: boolean; icon?: string }) {
+  return (
+    <div className="w-[13.5rem]">
+      <button className={`btn ${primary ? "btn-primary" : ""} w-full justify-center`} disabled={disabled} onClick={onClick} title={hint}>
+        {icon && <Icon name={icon} size={15} />} {label}
+      </button>
+      <p className="mt-1 text-[0.72rem] leading-snug muted">{hint}</p>
+    </div>
+  );
+}
+
+/** A quiet sign that the agents are working on their own: when they last checked and what they did. */
+function AgentPulse({ s }: { s?: AgentState }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  if (!s || !s.enabled || s.offline) return null;
+  const ago = s.last_at ? Math.max(0, Math.round((now - s.last_at) / 1000)) : null;
+  const last = s.last_actions?.[0];
+  return (
+    <div className="absolute right-4 top-4 sm:right-5 sm:top-4 max-w-[16rem] text-right pointer-events-none rounded-lg px-3 py-2" style={{ background: "rgba(11,30,25,0.8)" }} aria-live="polite">
+      <p className="inline-flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8FAF9D" }}>
+        <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style={{ background: "#A6D8B5" }} /><span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: "#A6D8B5" }} /></span>
+        Agents on watch
+      </p>
+      <p className="mt-1 text-xs" style={{ color: "#B9CBBF" }}>{ago === null ? "Starting…" : `Checked the graph ${ago < 5 ? "just now" : `${ago}s ago`}`}</p>
+      {last && <p className="mt-0.5 text-xs truncate" style={{ color: "#CFE3D6" }} title={s.last_actions.join(" · ")}>{last}</p>}
+    </div>
+  );
+}
+
+function DarkStatus({ status, repair }: { status: string; repair: boolean }) {
+  const s = statusOf(status, repair);
+  const c = s.tone === "bad" ? ["#3A2522", "#F6D6D1"] : s.tone === "warn" ? ["#3A3121", "#F3DCA9"] : ["rgba(166,216,181,0.16)", "#CFEBD8"];
+  return <span className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: c[0], color: c[1] }} title={s.hint}>{s.label}</span>;
+}
+
+const panelBorder = { borderColor: "rgba(166,216,181,0.14)" };
+const kicker = "text-[0.7rem] uppercase tracking-[0.1em]";
+
+function PanelHead({ label, title, sub, onClose }: { label: string; title: React.ReactNode; sub?: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="p-5 sm:p-6 border-b" style={panelBorder}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8FAF9D" }}>{label}</p>
+        <button onClick={onClose} className="rounded-md p-1 hover:bg-white/10" style={{ color: "#CFE3D6" }} aria-label="Close and go back to the swap list"><Icon name="close" size={16} /></button>
+      </div>
+      <p className="mt-1 font-display text-[1.45rem] leading-tight" style={{ color: "#FFFFFF" }}>{title}</p>
+      {sub && <p className="mt-1 text-sm" style={{ color: "#A9BFB2" }}>{sub}</p>}
+    </div>
+  );
+}
+
+/** One clicked line on the map: a single donation, explained from the facts on its graph edge. */
+function LinkPanel({ link, pool, onClose, onStep }: { link: PoolLink; pool: Pool; onClose: () => void; onStep: (key: string) => void }) {
+  const loop = pool.loops.find((l) => l.loop_id === link.loop_id);
+  const where = (pid: string) => loop?.pairs.find((p) => p.pair_id === pid)?.city ?? "";
+  const ring = (pool.links ?? []).filter((l) => l.loop_id === link.loop_id).sort((a, b) => a.pos - b.pos);
+  const i = ring.findIndex((l) => l.pos === link.pos);
+  const failed = !!link.failed_cause || link.status === "failed";
+  const p = link.p_success ?? 0;
+  const pill = "rounded-full border px-3 py-1 text-xs hover:bg-white/10";
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <PanelHead label="One planned donation" onClose={onClose}
+        title={<>{where(link.from_pair)} <span style={{ color: "#8FAF9D" }}>→</span> {where(link.to_pair)}</>}
+        sub={<>The donor from family {link.from_pair} gives a kidney to the patient of family {link.to_pair}.</>} />
+      <div className="p-5 sm:p-6 space-y-5 text-sm" style={{ color: "#CFE3D6" }}>
+        <div className="grid grid-cols-2 gap-4">
+          <div><p className={kicker} style={{ color: "#8FAF9D" }}>Donor</p><p className="mt-0.5" style={{ color: "#F7F6F0" }}>{link.donor_relation}, blood group {link.donor_abo}</p><p className="text-xs">{where(link.from_pair)} · {link.from_pair}</p></div>
+          <div><p className={kicker} style={{ color: "#8FAF9D" }}>Patient</p><p className="mt-0.5" style={{ color: "#F7F6F0" }}>blood group {link.patient_abo}, <Term k="cpra" dark>cPRA</Term> {link.patient_cpra}%</p><p className="text-xs">{where(link.to_pair)} · {link.to_pair}</p></div>
+        </div>
+        {failed ? (
+          <div className="rounded-lg px-3 py-2.5" style={{ background: "#3A2522", color: "#F6D6D1" }}>
+            <p className="font-semibold">This donation failed its lab test</p>
+            <p className="mt-0.5">{link.failed_detail ?? link.failed_cause}. The graph remembers it as a <code>FAILED</code> edge, so this donor is never proposed to this patient again.</p>
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-baseline justify-between"><span>Chance it holds</span><span className="font-display text-2xl tnum" style={{ color: "#FFFFFF" }}>{Math.round(p * 100)}%</span></div>
+            <div className="mt-1.5 h-2 rounded-full" style={{ background: "rgba(166,216,181,0.15)" }}><div className="h-full rounded-full" style={{ width: `${p * 100}%`, background: "#A6D8B5" }} /></div>
+            <p className="mt-1.5 text-xs" style={{ color: "#8FAF9D" }}>Estimated from published lab-test failure rates, adjusted for how sensitised this patient is and which tissue types the donor was tested for.</p>
+          </div>
+        )}
+        <div>
+          <p className={kicker} style={{ color: "#8FAF9D" }}>Why the graph says this can work</p>
+          <ul className="mt-1.5 space-y-1.5">
+            {(link.reasons ?? []).map((r) => <li key={r} className="flex gap-2"><span className="mt-0.5 shrink-0" style={{ color: "#A6D8B5" }}><Icon name="check" size={14} /></span>{r}</li>)}
+            {!link.reasons?.length && <li style={{ color: "#8FAF9D" }}>No live compatibility edge (the link failed).</li>}
+          </ul>
+        </div>
+        {loop && (
+          <div className="rounded-lg border px-3 py-3" style={{ borderColor: "rgba(166,216,181,0.2)" }}>
+            <p>Part of swap <span className="font-semibold" style={{ color: "#FFFFFF" }}>{loop.loop_id}</span> ({loop.kind}): {loopRoute(loop)}. It only goes ahead if all {ring.length} donations in the ring hold.</p>
+            {ring.length > 1 && (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                <button className={pill} style={{ borderColor: "rgba(166,216,181,0.3)" }} onClick={() => onStep(linkKey(ring[(i - 1 + ring.length) % ring.length]))}>← Previous donation in this swap</button>
+                <button className={pill} style={{ borderColor: "rgba(166,216,181,0.3)" }} onClick={() => onStep(linkKey(ring[(i + 1) % ring.length]))}>Next donation →</button>
+              </div>
+            )}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/swaps/${link.loop_id}`} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold" style={{ background: "var(--mint)", color: "var(--forest-deep)" }}>Open swap {link.loop_id} <Icon name="chevron" size={15} /></Link>
+          <Link href={`/case/${link.to_pair}`} className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold hover:bg-white/10" style={{ borderColor: "rgba(166,216,181,0.35)", color: "#E6F0EA" }}>What this patient&rsquo;s family sees</Link>
+        </div>
+        <p className="text-xs" style={{ color: "#7E9A8B" }}>Read live from FalkorDB: the <code>CAN_GIVE_TO</code> edge between two <code>Pair</code> nodes (query Q24_loop_links). Synthetic data.</p>
+      </div>
+    </div>
+  );
+}
+
+/** A clicked hospital: its families' donations in and out, and the swaps they belong to. */
+function CityPanel({ code, pool, onClose, onPickLoop, onPickLink }: { code: string; pool: Pool; onClose: () => void; onPickLoop: (id: string) => void; onPickLink: (k: string) => void }) {
+  const h = pool.hospitals.find((x) => x.code === code);
+  const cityOf = new Map<string, string>();
+  pool.loops.forEach((l) => l.pairs.forEach((p) => cityOf.set(p.pair_id, p.code)));
+  const name = (pid: string) => pool.hospitals.find((x) => x.code === cityOf.get(pid))?.city ?? "";
+  const touching = (pool.links ?? []).filter((l) => cityOf.get(l.from_pair) === code || cityOf.get(l.to_pair) === code);
+  const loops = pool.loops.filter((l) => l.pairs.some((p) => p.code === code));
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <PanelHead label="Hospital" onClose={onClose} title={h?.city ?? code}
+        sub={<>{h?.pairs} families registered here. Names and documents stay in this hospital&rsquo;s own private graph (<code>hosp_{code.toLowerCase()}</code>); only the medical facts matching needs are shared.</>} />
+      <div className="p-5 sm:p-6 space-y-5 text-sm" style={{ color: "#CFE3D6" }}>
+        <div>
+          <p className={`${kicker} mb-1.5`} style={{ color: "#8FAF9D" }}>Donations in and out · {touching.length} · click to inspect</p>
+          <ul className="space-y-0.5">
+            {touching.map((l) => (
+              <li key={linkKey(l)}>
+                <button className="w-full text-left rounded-md px-2 py-1.5 hover:bg-white/5 flex justify-between gap-2" onClick={() => onPickLink(linkKey(l))}>
+                  <span>{name(l.from_pair)} → {name(l.to_pair)} <span style={{ color: "#8FAF9D" }}>· {l.loop_id}</span></span>
+                  <span className="tnum" style={{ color: l.failed_cause ? "#E08A80" : "#F7F6F0" }}>{l.failed_cause ? "failed" : l.p_success != null ? `${Math.round(l.p_success * 100)}%` : ""}</span>
+                </button>
+              </li>
+            ))}
+            {touching.length === 0 && <li style={{ color: "#8FAF9D" }}>No planned donations involve this hospital yet.</li>}
+          </ul>
+        </div>
+        <div>
+          <p className={`${kicker} mb-1.5`} style={{ color: "#8FAF9D" }}>Swaps with a family from {h?.city} · {loops.length}</p>
+          <ul className="space-y-0.5">
+            {loops.map((l) => (
+              <li key={l.loop_id}><button className="w-full text-left rounded-md px-2 py-1.5 hover:bg-white/5" onClick={() => onPickLoop(l.loop_id)}>
+                <span className="font-semibold" style={{ color: "#F7F6F0" }}>{l.loop_id}</span> · {loopRoute(l)}
+              </button></li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PairDetail({ row, repairReady }: { row: PairRow | null; repairReady: boolean }) {
+  const loop = useLoop(row?.loop?.loop_id ?? null);
+  if (!row) return (
+    <section>
+      <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--ink-strong)" }}>Family details</h2>
+      <EmptyState title="Select a family">Pick a row to see which swap they are in, and why each of their donations was chosen.</EmptyState>
+    </section>
+  );
+  const fam = loop.data?.families?.find((f: any) => f.pair_id === row.pair_id);
+  const out = loop.data?.links?.find((l: any) => l.from_pair === row.pair_id);
+  const inn = loop.data?.links?.find((l: any) => l.to_pair === row.pair_id);
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h2 className="text-lg font-semibold" style={{ color: "var(--ink-strong)" }}>{row.pair_id} · {row.city}</h2>
+        {row.loop && <Link className="btn btn-sm" href={`/case/${row.pair_id}`}>Family view</Link>}
+      </div>
+      <div className="panel p-5 space-y-5">
+        {!row.loop ? <p className="text-sm muted">Waiting for a match. No planned swap includes this family yet.</p> : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Link className="font-semibold hover:underline" style={{ color: "var(--forest)" }} href={`/swaps/${row.loop.loop_id}`}>{row.loop.loop_id} · {loopRoute(row.loop)}</Link>
+              <StatusPill status={row.loop.status} repairReady={repairReady} />
+            </div>
+            {loop.error && !loop.data ? <ErrorState error={loop.error} onRetry={loop.reload} what="this swap" /> : !loop.data ? <Loading rows={3} /> : (
+              <>
+                {fam && (
+                  <dl className="grid grid-cols-2 gap-4">
+                    <Field label="Donor">{fam.donor_relation}, blood group {fam.donor_abo}</Field>
+                    <Field label="Patient">blood group {fam.patient_abo}, cPRA {fam.cpra}%</Field>
+                    <Field label="Why they can't donate within the family">{fam.own_clash}</Field>
+                    <Field label="Committee papers">{row.missing_docs ? <span style={{ color: "var(--warn)" }}>{row.missing_docs} missing</span> : "Complete"}</Field>
+                  </dl>
+                )}
+                {[["Receives a kidney from", inn, inn?.from_city], ["Their donor gives to", out, out?.to_city]].map(([label, l, city]: any) => l && (
+                  <div key={label} className="border-t pt-4" style={{ borderColor: "var(--line)" }}>
+                    <p className="label">{label} {city} · {Math.round(l.p_success * 100)}% likely to hold</p>
+                    <ul className="mt-1.5 text-sm space-y-1" style={{ color: l.status === "failed" ? "var(--bad)" : undefined }}>
+                      {(l.reasons ?? []).map((r: string) => <li key={r} className="flex gap-2"><Icon name="check" size={14} className="mt-0.5 shrink-0" />{r}</li>)}
+                      {l.failed_detail && <li className="flex gap-2"><Icon name="x" size={14} className="mt-0.5 shrink-0" />{l.failed_detail}</li>}
+                    </ul>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}

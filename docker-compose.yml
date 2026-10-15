@@ -1,0 +1,19 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports: ["6379:6379", "3000:3000"]
+  backend:
+    build: ./backend
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes: ["./data:/app/data"]
+    ports: ["8000:8000"]
+    depends_on: [falkordb]
+  web:
+    build:
+      context: ./web
+      args: { NEXT_PUBLIC_API_URL: "http://localhost:8000" }
+    ports: ["3001:3001"]
+    depends_on: [backend]

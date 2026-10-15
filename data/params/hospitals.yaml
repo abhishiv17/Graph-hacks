@@ -1,0 +1,20 @@
+# Synthetic hospitals (names are cities only; no real institution is implied).
+hospitals:
+  - {code: HYD, city: Hyderabad, lat: 17.39, lon: 78.49, lab: HYD-LAB}
+  - {code: BLR, city: Bengaluru, lat: 12.97, lon: 77.59, lab: BLR-LAB}
+  - {code: KOL, city: Kolkata,   lat: 22.57, lon: 88.36, lab: KOL-LAB}
+  - {code: CHE, city: Chennai,   lat: 13.08, lon: 80.27, lab: CHE-LAB}
+  - {code: DEL, city: Delhi,     lat: 28.61, lon: 77.21, lab: DEL-LAB}
+  - {code: MUM, city: Mumbai,    lat: 19.08, lon: 72.88, lab: MUM-LAB}
+  - {code: AMD, city: Ahmedabad, lat: 23.02, lon: 72.57, lab: AMD-LAB}
+  - {code: PUN, city: Pune,      lat: 18.52, lon: 73.86, lab: PUN-LAB}
+  - {code: JAI, city: Jaipur,    lat: 26.91, lon: 75.79, lab: JAI-LAB}
+  - {code: LKO, city: Lucknow,   lat: 26.85, lon: 80.95, lab: LKO-LAB}
+  - {code: COK, city: Kochi,     lat: 9.93,  lon: 76.27, lab: COK-LAB}
+
+near_relatives: [spouse, wife, husband, mother, father, son, daughter, brother, sister,
+                 grandmother, grandfather, grandson, granddaughter]
+
+# Delhi HC (Amar Singh Bhatia, 2024): whole process within 6-8 weeks.
+approval_target_days: 42
+required_documents: [hla_report, blood_group_card, relationship_proof, id_proof, consent]
