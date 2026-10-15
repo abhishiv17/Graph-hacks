@@ -3,7 +3,7 @@ CREATE (pl:Plan {run_id: $run_id, at: timestamp(), policy: $policy, solve_ms: $s
                  optimal: $optimal, expected_tx: $expected_tx, planned_tx: $planned_tx})
 WITH pl
 UNWIND $loops AS l
-CREATE (lp:Loop {loop_id: l.loop_id, kind: l.kind, organ: 'kidney', p_success: l.p_success,
+CREATE (lp:Loop {loop_id: l.loop_id, kind: l.kind, organ: l.organ, p_success: l.p_success,
                  expected_tx: l.expected_tx, status: 'selected', has_fallback: l.has_fallback, created_at: timestamp()})
 CREATE (pl)-[:CONTAINS]->(lp)
 WITH lp, l

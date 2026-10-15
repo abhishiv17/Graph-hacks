@@ -1,9 +1,9 @@
-// Build only this pair's CAN_GIVE_TO edges, in both directions (O(n) per new pair).
+// Build only this kidney pair's CAN_GIVE_TO edges, in both directions (O(n) per new pair).
 // An edge exists when blood groups fit, the virtual test is clear (Q03 logic inline),
-// and no FAILED memory edge joins the two pairs.
+// and no FAILED memory edge joins the two pairs. Liver pairs use Q21; organs never mix.
 MATCH (n:Pair {pair_id: $pair_id})
 MATCH (a:Pair)-[:HAS_DONOR]->(d:Donor)-[:HAS_ABO]->(dg:BloodGroup)-[:ABO_OK]->(pg:BloodGroup)<-[:HAS_ABO]-(r:Patient)<-[:HAS_PATIENT]-(b:Pair)
-WHERE (a = n OR b = n) AND a <> b
+WHERE (a = n OR b = n) AND a <> b AND a.organ = 'kidney' AND b.organ = 'kidney'
   AND a.status IN ['waiting','offered','testing','locked'] AND b.status IN ['waiting','offered','testing','locked']
   AND NOT (a)-[:FAILED]->(b)
 OPTIONAL MATCH (d)-[:HAS_ANTIGEN]->(h:HLAAntigen)<-[:REACTS_WITH]-(:Antibody)<-[k:HAS_ANTIBODY]-(r)
@@ -20,6 +20,7 @@ WHERE coalesce(e.lab_negative, false) = false   // a link proven by a lab test k
 // refusal risk counts only until the receiving hospital accepts the offer on this link
 SET e.p_success = round(p * CASE WHEN coalesce(e.offer_accepted, false) THEN 1.0 ELSE 1.0 - $refusal END * 100) / 100.0,
     e.abo_ok = true,
+    e.organ = 'kidney',
     e.vxm = CASE WHEN size(d.untyped_loci) > 0 THEN 'risk' ELSE 'clear' END,
     e.status = 'live',
     e.built_at = timestamp(),

@@ -21,18 +21,18 @@ Near-relative list (THOTA): spouse, mother, father, son, daughter, brother, sist
 | Label | Properties | Notes |
 |---|---|---|
 | `Pair` | `pair_id` (P-0154), `organ` (kidney/liver), `status` (waiting, offered, locked, transplanted, withdrawn), `approval_state` (not_started, submitted, docs_verified, interview_scheduled, approved, rejected), `approval_due`, `priority`, `entered_at`, `failed_count`, `version` | Hub. `version` is the optimistic lock for concurrent writes |
-| `Patient` | `abo`, `cpra`, `sex`, `age_band`, `weight_kg`, `height_cm`, `meld` (liver) | No identity fields |
+| `Patient` | `abo`, `cpra`, `sex`, `age_band`, `weight_kg`, `height_cm`; liver: `meld`, `recipient_evaluation`, `surgical_review` | No identity fields. Liver statuses are ELIGIBLE, REVIEW_REQUIRED, UNKNOWN or INELIGIBLE (program configuration, not diagnoses) |
 | `Donor` | `abo`, `relation`, `sex`, `age_band`, `bmi`, `untyped_loci[]` | |
-| `LiverProfile` | `liver_volume_ml`, `steatosis`, `right_lobe_ok`, `left_lobe_ml`, `right_lobe_ml` | Attached to liver donors only |
+| `LiverProfile` | `liver_volume_ml`, `steatosis`, `right_lobe_ok`, `left_lobe_ml`, `right_lobe_ml`, `volumetry` (ct, estimate), `anatomy_review`, `donor_evaluation` (statuses) | Attached to liver donors only. `estimate` = height-and-weight formula until CT volumetry is back; a failed work-up overwrites it with the CT values |
 | `BloodGroup` | `t` (O, A, B, AB) | Four nodes; ABO rules live as edges |
 | `HLAAntigen` | `name` (A2, B35, DR15, DQ7), `locus` | Shared antigen nodes |
 | `Antibody` | `specificity` | Linked to the antigens it reacts with, so antigen-equivalence tables are graph data |
 | `Hospital` | `code`, `city`, `lab_code`, `lat`, `lon` | `lat/lon` for the India map |
 | `Plan` | `run_id` (#42), `at`, `policy`, `solve_ms`, `optimal`, `expected_tx`, `planned_tx` | Every match run kept as history |
-| `Loop` | `loop_id` (S-0031), `kind` (2-way, 3-way, chain), `organ`, `p_success`, `expected_tx`, `status` (candidate, selected, offered, testing, committee, locked, broken, done), `has_fallback` | |
+| `Loop` | `loop_id` (S-0031 kidney, L-0031 liver), `kind` (2-way, 3-way, chain), `organ`, `p_success`, `expected_tx`, `status` (candidate, selected, offered, testing, committee, locked, broken, done), `has_fallback` | |
 | `Offer` | `offer_id`, `response` (pending, accept, decline, hold), `reason`, `at` | One per pair per loop |
-| `Crossmatch` | `test_id`, `result` (pending, negative, positive), `lab_code`, `requested_at`, `due_at`, `antibody` | |
-| `Failure` | `failure_id`, `cause` (positive_xm, refusal, withdrawal, too_ill, approval_rejected), `at`, `detail` | Episodic memory |
+| `Crossmatch` | `test_id`, `kind` (crossmatch, volumetry), `result` (pending, negative, positive), `lab_code`, `requested_at`, `due_at`, `antibody` | The pre-surgery test on one link: a lab crossmatch for kidney, the donor work-up (CT volumetry) for liver |
+| `Failure` | `failure_id`, `cause` (positive_xm, graft_too_small, refusal, withdrawal, too_ill, approval_rejected), `at`, `detail` | Episodic memory |
 | `Decision` | `decision_id`, `action` (select_plan, propose_repair, approve_repair, use_fallback, escalate, accept, decline, hold), `rationale`, `at` | Audit trail |
 | `Agent` | `name`, `kind` (intake, matching, crossmatch, committee, liaison, scheduler, integrity, medication, human) | |
 | `Task` | `task_id`, `kind`, `status`, `due` | Hand-offs and human approvals |
@@ -50,7 +50,7 @@ Near-relative list (THOTA): spouse, mother, father, son, daughter, brother, sist
 | `(Donor)-[:HAS_ANTIGEN]->(HLAAntigen)` | | Donor typing (A, B, DR; DQ/DP when typed) |
 | `(Patient)-[:HAS_ANTIBODY {mfi}]->(Antibody)-[:REACTS_WITH]->(HLAAntigen)` | `mfi` | Virtual crossmatch = donor antigen ← antibody ← patient, above an MFI threshold |
 | `(Donor)-[:HAS_LIVER]->(LiverProfile)` | | |
-| `(Pair)-[:CAN_GIVE_TO]->(Pair)` | `reasons[]`, `p_success`, `abo_ok`, `vxm` (clear, risk), `risk_antigens[]`, `status` (live, failed), `built_at`; liver: `lobe`, `grwr`, `remnant_pct` | **The central edge.** `reasons[]` holds text like "O+ → B+", "virtual test clear", "DQ typed" so every explanation is read from the edge |
+| `(Pair)-[:CAN_GIVE_TO]->(Pair)` | `organ` (the program whose rule built it; always both pairs' organ), `reasons[]`, `p_success`, `abo_ok`, `vxm` (clear, risk), `risk_antigens[]`, `status` (live, failed), `built_at`; liver: `lobe`, `grwr`, `remnant_pct`, `anatomy_review` | **The central edge.** `reasons[]` holds text like "O+ → B+", "virtual test clear", "DQ typed" so every explanation is read from the edge |
 | `(Pair)-[:FAILED {cause, at}]->(Pair)` | `cause`, `at`, `test_id` | **Failure memory as an edge.** Loop queries never use a donor→patient link that has one |
 | `(Pair)-[:IN_LOOP {pos}]->(Loop)` | `pos` | Order in the loop |
 | `(Plan)-[:CONTAINS]->(Loop)` | | |
@@ -76,7 +76,7 @@ If an edge alias isn't referenced elsewhere in a query, FalkorDB only checks tha
 | Label | Properties |
 |---|---|
 | `Pair` | `pair_id`, `published`, `consent_shared`, `version` |
-| `Person` | `name`, `role` (donor, patient), `dob`, `nationality`, `phone_hash`, `address_hash`, `id_hash` (all synthetic) |
+| `Person` | `name`, `role` (donor, patient), `dob`, `nationality`, `phone_hash`, `address_hash`, `id_hash` (all synthetic); donors: `full_typing` (kidney), `ct_*` volumes and `evaluation_note` (liver: the private note behind the shared statuses) |
 | `Document` | `type` (hla_report, blood_group_card, relationship_proof, id_proof, consent, no_commercial_declaration, form18_draft), `status` (missing, uploaded, verified), `hash` |
 | `Approval` | `stage` (application, document_verification, interview, decision, appeal), `opened_at`, `due`, `status` |
 | `Committee` | `level` (hospital, district, state) |

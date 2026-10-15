@@ -19,6 +19,9 @@ WITH p, d, r
 FOREACH (a IN $antigens |
   MERGE (h:HLAAntigen {name: a.name}) ON CREATE SET h.locus = a.locus
   MERGE (d)-[:HAS_ANTIGEN]->(h))
+FOREACH (lv IN $liver |   // liver donors only: one LiverProfile ([] for kidney pairs)
+  MERGE (d)-[:HAS_LIVER]->(x:LiverProfile {pair_id: $pair_id})
+  SET x += lv)
 FOREACH (ab IN $antibodies |
   MERGE (h:HLAAntigen {name: ab.name}) ON CREATE SET h.locus = ab.locus
   MERGE (x:Antibody {specificity: ab.name})

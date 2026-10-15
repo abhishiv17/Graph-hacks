@@ -27,8 +27,17 @@ Rules for every query: parameterised (no string building), edge aliases always r
 | Q17 | `failure_priors` | lab or hospital code → failure counts by kind | Counts `Failure` nodes linked through tests at that lab; feeds `p_success` on new edges (episodic → semantic memory) | 3 |
 | Q18 | `events_since` | seq → new events | Feeds the UI event stream | 2 |
 | Q24 | `loop_links` | loop ids → one row per donation, in order, with chance, reasons and any remembered failure | Feeds the clickable map on Live pool | built |
+| Q21 | `liver_edges_for_pair` | pair_id → liver links both ways | Q02's shape for liver: ABO traversal, then graft size (GRWR ≥ 0.8%, donor keeps ≥ 30%), left lobe first, right lobe only if `right_lobe_ok`. Reasons, lobe and GRWR are written on the edge. Run through `swapnet/organs/liver.py` | built |
 
-Q19 (`bridge_pairs`) is also built: the Live pool tags the top five bridge families.
+| Q25 | `program_pairs` | organ (or null), optional ids → shared facts per pair | One program's pool table: kidney cPRA, untyped loci, crossmatch results; liver MELD, weight, volumetry and evaluation statuses. No identities | built |
+| Q26 | `loop_evidence` | loop id → per link: edge facts, test, failure, organs of both pairs | Evidence for each recommendation (`swapnet/programs.py`); also proves the loop never mixed organs | built |
+| Q27 | `integrity_shared` | organ (or null) → findings | Missing hospital or pair references, cross-organ links or loops, broken links, links without reasons, status mismatches, repairs without a recorded approval, open reviews | built |
+| Q28 | `integrity_kidney` | → findings | Missing cPRA; untyped loci awaiting a crossmatch; committee-stage links without a negative crossmatch | built |
+| Q29 | `integrity_liver` | → findings | Missing LiverProfile; graft size still estimated at committee stage; open anatomical, donor, recipient or surgical suitability reviews | built |
+| Q30 | `exchange_candidates` | organ, pair id → live links in and out | `find_exchange_candidates` MCP tool and `/api/matches`; returns nothing unless the organ is the pair's own | built |
+| Q31 | `pair_link_counts` | organ (or null) → live links per pair and direction | "Candidate exchanges" column (counted apart from Q25: FalkorDB mis-counted chained OPTIONAL MATCH counts) | built |
+
+Q04, Q05 and Q11 take `$organ` (null = every program) and require every pair of a loop to share one organ. Q19 (`bridge_pairs`) is also built: the Live pool tags the top five bridge families.
 
 ## Stretch
 
@@ -36,7 +45,6 @@ Q19 (`bridge_pairs`) is also built: the Live pool tags the top five bridge famil
 |---|---|---|---|
 | Q19 | `bridge_pairs` | Betweenness centrality on `CAN_GIVE_TO`: pairs whose withdrawal breaks the most loops (built; shown on Live pool) | 3–4 |
 | Q20 | `hard_to_match` | Low in-degree patients (often O, high cPRA) for the fairness panel | 4 |
-| Q21 | `liver_edges` | Q02 variant: ABO, then GRWR ≥ 0.8% and remnant ≥ 30%, left lobe first, right lobe only if `right_lobe_ok` | 3–4 |
 | Q22 | `integrity_flags` | Hospital graph: `SHARES_ATTRIBUTE` across unrelated pairs, one donor in two pairs; `algo.cdlp` for rings. Flag only; a human reviews | 4 |
 | Q23 | `fairness_stats` | Match rate by blood group, cPRA band, donor sex | 4 |
 
