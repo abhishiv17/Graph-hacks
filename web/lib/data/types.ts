@@ -74,6 +74,17 @@ export type AgentState = { enabled: boolean; interval_s: number; sweeps: number;
 export type BackendEvent = { seq: number; at: number; agent: string; text: string; kind: string; organ?: OrganKey | "shared" };
 
 /** The same surface as the FastAPI backend, so pages work against either the live API or the offline snapshot. */
+/** Ask KindRed: one answered question, with the tool calls and graph paths behind it. */
+export type AskTrace = { tool: string; input: Record<string, unknown>; rows: number; ms: number; ids: string[]; error?: string; queries: (Ran & { read_only?: boolean })[] };
+export type AskResult = {
+  answer: string; draft_replaced: boolean; unverified_ids: string[]; verified_ids: string[];
+  trace: AskTrace[]; paths: string[][]; nodes: Record<string, { city: string; organ: string; status: string }>;
+  model: string; provider?: string; stop_reason: string | null; ms: number; remembered_as?: string | null;
+  usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number };
+};
+export type AskMemory = { question_id: string; question: string; answer: string; at: number; asked_by: string; about: string[] };
+export type AskStatus = { enabled: boolean; provider?: "anthropic" | "ollama"; model?: string; how?: string; tools?: string[]; offline?: boolean };
+
 export interface Api {
   pool(): Promise<Pool>;
   loop(id: string): Promise<any>;
@@ -100,4 +111,8 @@ export interface Api {
   integrity(organ?: OrganKey | null): Promise<Integrity>;
   simulations(): Promise<Scenario[]>;
   audit(organ?: OrganKey | null): Promise<BackendEvent[]>;
+  // Ask KindRed (live API only)
+  askStatus(): Promise<AskStatus>;
+  askHistory(): Promise<{ questions: AskMemory[] }>;
+  ask(question: string, history: { role: "user" | "assistant"; content: string }[]): Promise<AskResult>;
 }

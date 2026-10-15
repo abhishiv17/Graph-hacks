@@ -59,5 +59,8 @@ export function createLiveApi(): Api {
     integrity: (organ) => get(`/api/integrity${organ ? `?organ=${organ}` : ""}`),
     simulations: () => get("/api/simulations"),
     audit: (organ) => get(`/api/audit${organ ? `?organ=${organ}` : ""}`),
+    askStatus: () => get("/api/ask/status"),
+    askHistory: () => get("/api/ask/history"),
+    ask: (question, history) => post("/api/ask", { question, history }),
   };
 }

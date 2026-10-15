@@ -15,6 +15,7 @@ import { gsap, useGSAP } from "@/components/landing/gsap";
 export const NAV_GROUPS = [
   { title: "Run the exchange", items: [
     { href: "/pool", label: "Live pool", icon: "pool", sub: "Map of every planned donation" },
+    { href: "/ask", label: "Ask KindRed", icon: "search", sub: "Questions answered from the graph" },
     { href: "/swaps", label: "Swaps", icon: "swaps", sub: "Tests, failures, repairs" },
     { href: "/committee", label: "Committee review", icon: "committee", sub: "Program checklists and papers" },
     { href: "/integrity", label: "Integrity", icon: "integrity", sub: "Data and workflow checks" },

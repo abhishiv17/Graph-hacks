@@ -132,6 +132,18 @@ export function createOfflineApi(): Api {
       return { ...i, organ: organ ?? null, findings, counts: { error: findings.filter((f: any) => f.severity === "error").length, warn: findings.filter((f: any) => f.severity === "warn").length, info: findings.filter((f: any) => f.severity === "info").length } };
     },
     async simulations() { return (await load()).simulations ?? []; },
+    // Ask KindRed needs the model, so offline mode can only replay answers recorded from the live agent.
+    async askStatus() {
+      const rec = ((await load()).ask ?? []) as { question: string }[];
+      return { enabled: rec.length > 0, offline: true, recorded: rec.map((r) => r.question) } as any;
+    },
+    async askHistory() { return { questions: [] }; },
+    async ask(question) {
+      const rec = ((await load()).ask ?? []) as { question: string; result: any }[];
+      const hit = rec.find((r) => r.question.trim().toLowerCase() === question.trim().toLowerCase());
+      if (!hit) throw new Error("Offline mode only has answers recorded for the example questions. Connect the API to ask anything else.");
+      return hit.result;
+    },
     async audit(organ) {
       const s = await load();
       const cut = (s.event_cutoff ?? EVENT_CUTOFF)[readStage()];
