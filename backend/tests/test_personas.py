@@ -171,10 +171,12 @@ def test_patient_chat_is_stored_in_memory_and_survives_a_replay(monkeypatch):
     assert [m["role"] for m in r["messages"]][-2:] == ["user", "assistant"] and r["messages"][-1]["tools"] == ["patient_memory"]
     assert "P-0902" in http.bodies[0]["messages"][-1]["content"]  # the question is framed around the patient
     assert c.get("/api/personas/rajesh/chat").json()["messages"][-1]["text"].startswith("Rajesh is in")
+    n = len(r["messages"])  # the graph-answered starter questions, then this question and its answer
+    assert n == 8 and r["messages"][0]["role"] == "user"
     c.post("/api/personas/rajesh/reset")
-    assert len(c.get("/api/personas/rajesh").json()["conversation"]) == 2  # the conversation outlives a replay
+    assert len(c.get("/api/personas/rajesh").json()["conversation"]) == n  # the conversation outlives a replay
     scenario.load()
-    assert len(c.get("/api/personas/rajesh").json()["conversation"]) == 2  # and Restart demo
+    assert len(c.get("/api/personas/rajesh").json()["conversation"]) == n  # and Restart demo
     assert c.post("/api/personas/rajesh/chat", json={"message": " "}).status_code == 400
 
 

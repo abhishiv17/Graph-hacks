@@ -9,7 +9,8 @@ import { Guide, type KinPose } from "@/components/Kin";
 import { useStoryTour } from "./StoryTour";
 import { DataProvider, useData, useResource } from "@/lib/data/source";
 import { ProgramProvider } from "@/lib/program";
-import type { AskResult, AskStatus } from "@/lib/data/types";
+import type { AskResult, AskStatus, ChatMessage } from "@/lib/data/types";
+import FromMemory from "@/components/app/FromMemory";
 
 type Help = { title: string; say: string; tips: string[]; links?: { href: string; label: string }[]; hiccups?: { q: string; a: string }[] };
 
@@ -110,6 +111,67 @@ export default function KinGuide() {
   );
 }
 
+/** On a patient's or family's page, Kin talks about that patient only, in the conversation kept in their own graph
+ *  (the same one the patient page shows). It starts with a few questions already answered from the graph. */
+function subjectOf(path: string): { kind: "persona" | "family"; id: string } | null {
+  const p = path.match(/^\/patients\/([^/]+)/);
+  if (p) return { kind: "persona", id: decodeURIComponent(p[1]) };
+  const f = path.match(/^\/families\/([^/]+)/);
+  return f ? { kind: "family", id: decodeURIComponent(f[1]).toUpperCase() } : null;
+}
+
+function PatientChat({ kind, id, onClose }: { kind: "persona" | "family"; id: string; onClose: () => void }) {
+  const { api } = useData();
+  const [msgs, setMsgs] = useState<ChatMessage[] | null>(null);
+  const [about, setAbout] = useState("");
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let alive = true;
+    api.chatHistory(kind, id).then((r) => { if (alive) { setMsgs(r.messages); setAbout(r.about); } }).catch((e) => alive && setErr(String(e.message ?? e)));
+    return () => { alive = false; };
+  }, [api, kind, id]);
+  useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [msgs?.length]);
+  const send = async (text: string) => {
+    if (!text.trim() || busy) return;
+    setBusy(true); setErr(null); setQ("");
+    setMsgs((m) => [...(m ?? []), { message_id: "pending", role: "user", text, at: Date.now(), tools: [], model: null }]);
+    try { const r = await api.chatAsk(kind, id, text); setMsgs(r.messages); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+  const first = about.replace(/^the family in /, "").split(" ")[0] || "this patient";
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.12em] muted">Ask about {about || "this patient"}</p>
+      <p className="mt-0.5 text-xs muted">Only about them. The conversation is kept in their own graph, so any browser sees it.</p>
+      <div className="mt-2 max-h-64 overflow-y-auto space-y-2 pr-1">
+        {!msgs && !err && <p className="text-sm muted">Opening the conversation…</p>}
+        {(msgs ?? []).map((m, i) => (
+          <div key={m.message_id + i} className={`rounded-lg px-3 py-2 text-sm ${m.role === "user" ? "ml-6" : "mr-3"}`}
+               style={{ background: m.role === "user" ? "var(--sage)" : "var(--sage-pale)", color: "var(--ink-strong)" }}>
+            <p className="whitespace-pre-line">{plain(m.text)}</p>
+            {m.role === "assistant" && m.model && <p className="mt-0.5 text-[0.68rem] muted">{/starter/.test(m.model) ? "Answered from the graph" : /guard/.test(m.model) ? "Kept to this patient" : `From the graph${m.tools?.length ? `: ${m.tools.join(", ")}` : ""}`}</p>}
+            {m.role === "assistant" && <FromMemory items={m.memory} />}
+          </div>
+        ))}
+        {busy && <p className="text-sm muted">Looking it up in the graph…</p>}
+        <div ref={end} />
+      </div>
+      {err && <p className="mt-1 text-xs" style={{ color: "var(--bad)" }}>{err}</p>}
+      <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); send(q); }}>
+        <label className="sr-only" htmlFor="kin-pq">Your question</label>
+        <input id="kin-pq" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Ask about ${first}…`} maxLength={1000}
+               className="min-w-0 flex-1 rounded-full border px-3.5 py-2 text-sm outline-none focus:border-[var(--forest-mid)]" style={{ borderColor: "var(--line)" }} />
+        <button className="btn btn-sm btn-primary" disabled={busy || !q.trim()}>{busy ? "Asking…" : "Ask"}</button>
+      </form>
+      <p className="mt-1.5 text-xs muted">About other families or the whole pool? <Link href="/ask" onClick={onClose} className="underline" style={{ color: "var(--forest)" }}>Ask KindRed</Link>.</p>
+    </div>
+  );
+}
+
 function Panel({ help, path, onClose }: { help: Help; path: string; onClose: () => void }) {
   const { mode, retryLive, api } = useData();
   const status = useResource<AskStatus>("askStatus", (a) => a.askStatus());
@@ -193,7 +255,7 @@ function Panel({ help, path, onClose }: { help: Help; path: string; onClose: () 
           </div>
         )}
 
-        <div>
+        {subjectOf(path) ? <PatientChat {...subjectOf(path)!} onClose={onClose} /> : <div>
           <p className="text-xs font-bold uppercase tracking-[0.12em] muted">Ask the graph</p>
           {status.data && !status.data.enabled ? (
             <p className="mt-1 text-sm muted">Asking needs a language model: {status.data.how ?? "see the README"}.</p>
@@ -228,7 +290,7 @@ function Panel({ help, path, onClose }: { help: Help; path: string; onClose: () 
               )}
             </>
           )}
-        </div>
+        </div>}
       </div>
     </section>
   );

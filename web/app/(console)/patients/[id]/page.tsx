@@ -5,6 +5,7 @@ import { ErrorState, Loading, OrganTag, Tag } from "@/components/app/ui";
 import { Icon } from "@/components/app/icons";
 import { Family } from "@/components/Kin";
 import FamilyExplorer from "@/components/app/FamilyExplorer";
+import FromMemory from "@/components/app/FromMemory";
 import TrendChart from "@/components/app/TrendChart";
 import MiniMap, { type MiniLink } from "@/components/app/MiniMap";
 import { useAction, useData, useResource } from "@/lib/data/source";
@@ -240,6 +241,7 @@ function Chat({ j }: { j: PersonaJourney }) {
                style={{ background: m.role === "user" ? "var(--sage)" : "var(--sage-pale)", color: "var(--ink-strong)" }}>
             <p className="whitespace-pre-line">{bold(m.text)}</p>
             {m.role === "assistant" && m.tools?.length > 0 && <p className="text-[0.7rem] muted mt-1">From the graph: {m.tools.join(", ")}</p>}
+            {m.role === "assistant" && <FromMemory items={m.memory} />}
           </div>
         ))}
         {busy && <p className="text-sm muted">Reading the graph…</p>}
@@ -394,7 +396,7 @@ export default function Journey({ params }: { params: Promise<{ id: string }> })
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-2">
-            <button className="btn btn-primary" disabled={!!act.busy || ended} onClick={() => act.run("advance", (a) => a.personaAdvance(id))}
+            <button className="btn btn-primary" disabled={!!act.busy || ended} onClick={async () => { await act.run("advance", (a) => a.personaAdvance(id, j.week)); r.reload(); }}
                     title={ended ? "The journey is over. Replay it to start again." : "One simulated week passes: a new lab result arrives and the agents act"}>
               <Icon name="play" size={15} /> {act.busy === "advance" ? "Agents working…" : j.transplanted ? "Transplant done" : ended ? "End of the journey" : "Next week"}
             </button>
@@ -448,7 +450,7 @@ export default function Journey({ params }: { params: Promise<{ id: string }> })
               <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>This week, the coordinator agent: </span>
               {decision.text.replace(/^Coordinator agent: /, "")}
             </p>
-            <p className="text-xs muted mt-0.5">A language model ({decision.model ?? "rules"}) choosing from a fixed set of graph tools. It never writes a query, and every id it names is checked.</p>
+            <p className="text-xs muted mt-0.5">A language model ({decision.model ?? "rules"}) choosing from a fixed set of graph tools{decision.trace?.some((t) => (t as any).via === "mcp") ? ", discovered and called over MCP on KindRed's own MCP server" : ""}. It never writes a query, and every id it names is checked.</p>
             <HowItDecided f={decision} />
           </div>
         )}

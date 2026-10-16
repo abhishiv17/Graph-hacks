@@ -187,9 +187,9 @@ def seed(pid: str, publish_pair: bool = True) -> dict:
 
     # The persona's own memory graph, rebuilt from scratch. The conversation lives in its own graph (chat_<id>), which
     # neither a replay nor Restart demo deletes; move any older messages there first.
-    if mg in db.db().list_graphs():
+    if db.exists(mg):
         _move_messages(pid)
-        db.db().select_graph(mg).delete()
+        db.drop(mg)
     db.raw("CREATE (:Person {persona_id: $p, pair_id: $pair, name: $n, organ: $o, hospital: $h, base: $now, week: 0})",
            {"p": pid, "pair": p["pair_id"], "n": p["name"], "o": p["organ"], "h": p["hospital"], "now": now}, graph=mg)
     for stage, steps in settings()["playbooks"][p["organ"]].items():
@@ -301,17 +301,23 @@ def remember_decision(pid: str, *, at: int, week: int, text: str, trace: list[di
 
 
 def conversation(pid: str) -> list[dict]:
-    if chat_graph(pid) not in db.db().list_graphs():
+    if not db.exists(chat_graph(pid)):
         return []
-    return db.run("Q52_conversation", {"persona_id": pid}, graph=chat_graph(pid))
+    msgs = db.run("Q52_conversation", {"persona_id": pid}, graph=chat_graph(pid))
+    for m in msgs:
+        m["memory"] = json.loads(m["memory"]) if m.get("memory") else []
+    return msgs
 
 
 def add_message(pid: str, role: str, text: str, tools: list[str] | None = None, model: str | None = None,
-                message_id: str | None = None, at: int | None = None) -> str:
+                message_id: str | None = None, at: int | None = None, memory: list[dict] | None = None) -> str:
+    """One chat turn. `memory`: what an answer read from memory, as [{"what", "at", "by"}], so the chat can say when
+    each remembered piece was learned."""
     mid = message_id or _id("M")
     db.raw("MERGE (:Person {persona_id: $p})", {"p": pid}, graph=chat_graph(pid))
     db.run("Q53_add_message", {"persona_id": pid, "message_id": mid, "role": role, "text": text,
-                               "at": at or int(time.time() * 1000), "tools": tools or [], "model": model}, graph=chat_graph(pid))
+                               "at": at or int(time.time() * 1000), "tools": tools or [], "model": model,
+                               "memory": json.dumps(memory) if memory else None}, graph=chat_graph(pid))
     return mid
 
 
