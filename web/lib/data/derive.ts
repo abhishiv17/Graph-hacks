@@ -8,13 +8,13 @@ export const docName = (d: string) => d.replace(/_/g, " ").replace(/\b(ct|hla|id
 
 export type Tone = "ok" | "warn" | "bad" | "neutral" | "sim";
 export const STATUS: Record<string, { label: string; tone: Tone; hint: string }> = {
-  selected: { label: "Selected", tone: "neutral", hint: "Chosen by the optimiser; offers not yet sent" },
-  offered: { label: "Offered", tone: "neutral", hint: "Offers sent to each hospital" },
-  testing: { label: "Testing", tone: "warn", hint: "Lab crossmatches (kidney) or donor work-ups (liver) requested or running" },
-  committee: { label: "Committee", tone: "ok", hint: "Tests passed; waiting on Authorisation Committee files" },
-  locked: { label: "Booked", tone: "ok", hint: "Approved and booked; never re-planned" },
-  broken: { label: "Link failed", tone: "bad", hint: "A link failed; the loop cannot go ahead as planned" },
-  repair: { label: "Repair awaiting review", tone: "bad", hint: "A repair is proposed and needs a person's decision" },
+  selected: { label: "Chosen this week", tone: "neutral", hint: "Picked in this week's match; hospitals not asked yet" },
+  offered: { label: "Hospitals asked", tone: "neutral", hint: "Every hospital in the swap has been asked to take part" },
+  testing: { label: "Tests under way", tone: "warn", hint: "Each donation is being tested before surgery" },
+  committee: { label: "With the committee", tone: "ok", hint: "Tests passed; the legal committee is checking each family's papers" },
+  locked: { label: "Surgery booked", tone: "ok", hint: "Approved and booked" },
+  broken: { label: "A test failed", tone: "bad", hint: "One donation failed its test, so the swap can't go ahead as planned" },
+  repair: { label: "Fix needs your OK", tone: "bad", hint: "A replacement is ready and waits for a person to approve it" },
 };
 export const statusOf = (s: string, repairReady = false) => (repairReady ? STATUS.repair : STATUS[s] ?? { label: s, tone: "neutral" as Tone, hint: "" });
 

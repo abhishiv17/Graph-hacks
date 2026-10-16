@@ -315,14 +315,14 @@ export default function PoolMap({ hospitals, loops, links, focusLoop, selectedLi
         <button type="button" onClick={() => fitTo(focus.pairs.map((p) => p.code))}
                 className="absolute left-14 top-3 rounded-lg border px-3 h-9 text-xs font-semibold hover:bg-[var(--surface-soft)]"
                 style={{ borderColor: "var(--line)", background: "rgba(255,255,255,0.95)", color: "#1F2C27" }}>
-          Zoom to {focus.loop_id}
+          Zoom to this swap
         </button>
       )}
 
       {/* legend and hint */}
       <div className="absolute left-3 bottom-3 rounded-lg px-3 py-2 text-[0.72rem] space-y-1 pointer-events-none" style={{ background: "rgba(255,255,255,0.92)", color: "#4A5952", border: "1px solid var(--line)" }}>
         {ORGAN_NAMES.filter((o) => links.some((l) => (l.organ ?? "kidney") === o)).map((o) => (
-          <p key={o} className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={lineOf(o, false)} strokeWidth="2" /></svg>{ORGANS[o].label} donation <span style={{ color: "#66736B" }}>(deeper in focus)</span></p>
+          <p key={o} className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={lineOf(o, false)} strokeWidth="2" /></svg>{ORGANS[o].label} donation</p>
         ))}
         <p className="flex items-center gap-2"><svg width="22" height="6"><path d="M1 3H21" stroke={C.failed} strokeWidth="2" strokeDasharray="5 4" /></svg>Failed test or work-up</p>
         <p className="pt-1" style={{ color: "#66736B" }}>Scroll to zoom · drag to move · click a line</p>

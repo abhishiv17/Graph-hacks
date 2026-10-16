@@ -3,7 +3,9 @@
 // blood groups, the donor's tissue antigens and the patient's antibodies; the coral path shows why the family's own
 // donor can't give; and the families around it come in hop by hop, with the swaps that close back to it highlighted.
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Walkthrough from "./Walkthrough";
+import { familyWalk, type WalkStep } from "@/lib/walkthrough";
 import { Icon } from "./icons";
 import { useResource } from "@/lib/data/source";
 import type { Explore, ExploreEdge, ExploreNode, ExploreNodeType } from "@/lib/data/types";
@@ -38,6 +40,26 @@ const PRETTY: Record<string, string> = {
 };
 
 type Pos = { x: number; y: number };
+
+/** One plain sentence for whatever is under the pointer. Families carry the server's "why"; parts are explained here. */
+function explainNode(n: ExploreNode): string {
+  const d = n.data;
+  switch (n.type) {
+    case "patient": return `The person who needs the transplant${d.abo ? `, blood group ${d.abo}` : ""}.`;
+    case "donor": return `The relative who wants to donate${d.relation ? ` (${d.relation})` : ""}, but can't give to their own patient.`;
+    case "blood": return `Blood group ${d.group ?? n.label}. Blood groups decide who can give to whom.`;
+    case "antigen": return `${n.label}: a tissue marker on the donor's cells. If a patient has an antibody against it, their body would reject the organ.`;
+    case "antibody": return `Something in the patient's blood that attacks ${(d.reacts_with ?? []).join(", ") || "a tissue marker"} (strength ${d.mfi}). From 2000 it counts as a clash.`;
+    case "hospital": return `The hospital this family is registered at. Names and papers stay here.`;
+    case "liver": return `The donor's liver measurements, which decide whose body the donated part would fit.`;
+    default: return n.why ?? `${n.label}, in ${d.city ?? "the pool"}.`;
+  }
+}
+const EDGE_WORDS: Record<string, string> = {
+  HAS_PATIENT: "This family's patient.", HAS_DONOR: "This family's donor.", REGISTERED_AT: "Where the family is registered.",
+  HAS_ABO: "This person's blood group.", HAS_ANTIGEN: "A tissue marker the donor carries.", HAS_ANTIBODY: "An antibody in the patient's blood.",
+  REACTS_WITH: "This antibody attacks that tissue marker.", HAS_LIVER: "The donor's liver measurements.",
+};
 
 /** Parts fan out on the left; families come in on the right, one ring per hop. Deterministic, so nothing jumps. */
 function layout(g: Explore): Map<string, Pos> {
@@ -110,12 +132,38 @@ export default function FamilyExplorer({ pair, height = 600, onExplore }: { pair
   const [hover, setHover] = useState<string | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
+  const [hoverEdge, setHoverEdge] = useState<string | null>(null);
+  const [tip, setTip] = useState<{ x: number; y: number } | null>(null);
+  const [walk, setWalk] = useState<WalkStep | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  // A step may need families further out: open the hops it talks about.
+  useEffect(() => { if (walk?.hops && walk.hops > hops) setHops(walk.hops); }, [walk]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Touchpad pinch (ctrl + wheel) and scroll zoom around the pointer. Non-passive, so the page doesn't scroll instead.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const f = Math.exp(-e.deltaY * (e.ctrlKey ? 0.012 : 0.0025));
+      setView((v) => {
+        const k = Math.max(0.6, Math.min(3.2, v.k * f));
+        const px = -v.x + ((e.clientX - rect.left) / rect.width) * (W / v.k), py = -v.y + ((e.clientY - rect.top) / rect.height) * (H / v.k);
+        return { k, x: -(px - ((e.clientX - rect.left) / rect.width) * (W / k)), y: -(py - ((e.clientY - rect.top) / rect.height) * (H / k)) };
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  });
   const g = r.data;
   const center = `fam:${pair}`;
   const pos = useMemo(() => (g ? layout(g) : new Map<string, Pos>()), [g]);
   const nodes = useMemo(() => new Map((g?.nodes ?? []).map((n) => [n.id, n])), [g]);
   const selected = sel ?? center;
   const focus = hover ?? null;
+  const litNodes = walk ? new Set(walk.nodes) : null;
+  const litEdges = walk ? new Set(walk.edges) : null;
   const touching = (e: ExploreEdge, id: string | null) => !!id && (e.from === id || e.to === id);
 
   if (r.error && !g) return <p className="panel p-6 text-sm" style={{ color: "var(--bad)" }}>Couldn&rsquo;t load {pair}&rsquo;s graph: {r.error.message}</p>;
@@ -139,6 +187,9 @@ export default function FamilyExplorer({ pair, height = 600, onExplore }: { pair
           ))}
         </div>
       </header>
+      <div className="px-4 py-2.5 border-b" style={{ borderColor: "var(--line)" }}>
+        <Walkthrough load={(lang) => familyWalk(pair, lang)} onStep={setWalk} label="Explain this graph, step by step" />
+      </div>
       {g && (
         <div className="px-4 py-2.5 text-sm flex flex-wrap gap-x-6 gap-y-1 border-b" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>
           <span><span className="font-semibold" style={{ color: MARK.own }}>Why not their own donor: </span>{g.why_not_own.text}.</span>
@@ -146,9 +197,11 @@ export default function FamilyExplorer({ pair, height = 600, onExplore }: { pair
         </div>
       )}
       <div className="grid lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="relative" style={{ height }}>
+        <div className="relative" style={{ height }} ref={box}
+             onPointerMove={(e) => { const r = box.current?.getBoundingClientRect(); if (r) setTip({ x: e.clientX - r.left, y: e.clientY - r.top }); }}
+             onPointerLeave={() => { setTip(null); setHoverEdge(null); }}>
           {!g ? <div className="grid h-full place-items-center text-sm muted">Reading {pair} from the graph…</div> : (
-            <svg viewBox={`${-view.x} ${-view.y} ${W / view.k} ${H / view.k}`} className="h-full w-full select-none touch-none"
+            <svg ref={svgRef} viewBox={`${-view.x} ${-view.y} ${W / view.k} ${H / view.k}`} className="h-full w-full select-none touch-none"
                  style={{ background: "radial-gradient(circle at 49% 50%, #F4F8F3 0%, #FBFAF6 70%)", cursor: drag.current ? "grabbing" : "grab" }}
                  onPointerDown={(e) => { if ((e.target as Element).closest("[data-node],[data-edge]")) return; drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; (e.currentTarget as Element).setPointerCapture(e.pointerId); }}
                  onPointerMove={(e) => { const d = drag.current; if (!d) return; const s = (W / view.k) / (e.currentTarget as SVGSVGElement).clientWidth; setView((v) => ({ ...v, x: d.vx + (e.clientX - d.x) * s, y: d.vy + (e.clientY - d.y) * s })); }}
@@ -172,14 +225,18 @@ export default function FamilyExplorer({ pair, height = 600, onExplore }: { pair
                 const mx = (a.x + b.x) / 2 - dy * bend, my = (a.y + b.y) / 2 + dx * bend;
                 const ex = b.x - (dx / len) * rb, ey = b.y - (dy / len) * rb;
                 const mark = e.mark;
-                const lit = touching(e, focus) || touching(e, selected) || sel === e.id;
-                const dim = (focus && !touching(e, focus)) || false;
-                const color = mark ? MARK[mark] : lit ? "#5E8A73" : "#B9C7BD";
-                const width = mark ? 2.6 : lit ? 1.8 : 1;
+                const hov = hoverEdge === e.id;
+                const said = !!litEdges?.has(e.id);
+                const lit = hov || said || touching(e, focus) || touching(e, selected) || sel === e.id;
+                const dim = litEdges ? !said : (focus && !touching(e, focus)) || (hoverEdge ? !hov : false);
+                const color = said ? "#C98A1E" : hov ? "#183B32" : mark ? MARK[mark] : lit ? "#5E8A73" : "#B9C7BD";
+                const width = said ? 4 : hov ? 3.4 : mark ? 2.6 : lit ? 1.8 : 1;
                 const d = `M${a.x} ${a.y} Q${mx} ${my} ${ex} ${ey}`;
                 return (
-                  <g key={e.id} data-edge onClick={() => setSel(e.id)} style={{ cursor: "pointer", opacity: dim ? 0.18 : 1 }}>
-                    <path d={d} fill="none" stroke="transparent" strokeWidth={10} />
+                  <g key={e.id} data-edge onClick={() => setSel(e.id)} style={{ cursor: "pointer", opacity: dim ? 0.15 : 1, transition: "opacity .2s" }}
+                     onPointerEnter={() => setHoverEdge(e.id)} onPointerLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}>
+                    <path d={d} fill="none" stroke="transparent" strokeWidth={16} />
+                    {said && <path d={d} fill="none" stroke="#F3D9A4" strokeWidth={10} opacity={0.7} />}
                     <path d={d} fill="none" stroke={color} strokeWidth={width} opacity={mark || lit ? 1 : 0.75}
                           markerEnd={e.type === "CAN_GIVE_TO" || e.type === "REACTS_WITH" ? `url(#arrow-${pair}-${mark ?? "base"})` : undefined} />
                     {mark && <path d={d} fill="none" stroke="#fff" strokeWidth={1.2} className={mark === "own" ? "flow" : "flow-slow"} opacity={0.9} />}
@@ -192,12 +249,14 @@ export default function FamilyExplorer({ pair, height = 600, onExplore }: { pair
                 const isC = n.id === center;
                 const rr = isC ? 24 : TYPE[n.type].r;
                 const on = selected === n.id;
-                const dim = focus && focus !== n.id && !g.edges.some((e) => touching(e, focus) && (e.from === n.id || e.to === n.id));
+                const dim = litNodes ? !litNodes.has(n.id) : focus && focus !== n.id && !g.edges.some((e) => touching(e, focus) && (e.from === n.id || e.to === n.id));
+                const said = !!litNodes?.has(n.id);
                 const own = g.why_not_own.edges.some((id) => { const e = g.edges.find((x) => x.id === id); return e && (e.from === n.id || e.to === n.id); });
                 return (
                   <g key={n.id} data-node transform={`translate(${p.x} ${p.y})`} style={{ cursor: "pointer", opacity: dim ? 0.25 : 1, transition: "opacity .15s" }}
                      onClick={() => setSel(n.id)} onPointerEnter={() => setHover(n.id)} onPointerLeave={() => setHover(null)}
                      tabIndex={0} role="button" aria-label={`${TYPE[n.type].label} ${n.label}`} onKeyDown={(e) => e.key === "Enter" && setSel(n.id)}>
+                    {said && <circle r={rr + 11} fill="#F3D9A4" opacity={0.55} className="pulse-soft" />}
                     {(on || isC) && <circle r={rr + 7} fill="none" stroke={on ? "#D99A35" : "#A6D8B5"} strokeWidth={on ? 2.5 : 2} className={isC ? "pulse-soft" : undefined} />}
                     {own && <circle r={rr + 4} fill="none" stroke={MARK.own} strokeWidth={1.8} strokeDasharray="3 3" />}
                     <circle r={rr} fill={nodeColor(n, center)} stroke="#fff" strokeWidth={2} />
@@ -217,6 +276,24 @@ export default function FamilyExplorer({ pair, height = 600, onExplore }: { pair
             ))}
             <button className="h-8 w-8 grid place-items-center border-t hover:bg-[var(--surface-soft)]" style={{ borderColor: "var(--line)" }} aria-label="Reset view" onClick={() => setView({ x: 0, y: 0, k: 1 })}><Icon name="reset" size={14} /></button>
           </div>
+          {tip && g && (hoverEdge || hover) && (() => {
+            const e = hoverEdge ? g.edges.find((x) => x.id === hoverEdge) : null;
+            const n = !e && hover ? nodes.get(hover) : null;
+            if (!e && !n) return null;
+            const title = e ? (e.type === "CAN_GIVE_TO" ? `${nodes.get(e.from)?.label}'s donor → ${nodes.get(e.to)?.label}'s patient` : `${nodes.get(e.from)?.label} → ${nodes.get(e.to)?.label}`)
+              : `${TYPE[n!.type].label}: ${n!.label}`;
+            const body = e ? (e.type === "CAN_GIVE_TO" ? `${e.p != null ? `${Math.round(e.p * 100)}% chance it works. ` : ""}${e.why ?? ""}` : EDGE_WORDS[e.type] ?? e.label)
+              : explainNode(n!);
+            const w = box.current?.clientWidth ?? 600;
+            return (
+              <div className="pointer-events-none absolute z-20 max-w-[18rem] rounded-lg border px-3 py-2 text-xs shadow-md"
+                   style={{ left: Math.min(tip.x + 14, w - 300), top: Math.max(8, tip.y - 12), background: "var(--surface)", borderColor: "var(--line)" }}>
+                <p className="font-semibold" style={{ color: "var(--ink-strong)" }}>{title}</p>
+                <p className="mt-0.5" style={{ color: "var(--ink)" }}>{body}</p>
+                {e?.mark === "own" && <p className="mt-1" style={{ color: MARK.own }}>Part of why the family&rsquo;s own donor can&rsquo;t give.</p>}
+              </div>
+            );
+          })()}
           <div className="absolute left-3 bottom-3 flex flex-wrap gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-[0.7rem]" style={{ background: "rgba(255,255,255,0.88)", border: "1px solid var(--line)" }}>
             {(Object.keys(TYPE) as ExploreNodeType[]).filter((t) => g?.nodes.some((n) => n.type === t)).map((t) => (
               <span key={t} className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: TYPE[t].color }} />{TYPE[t].label}</span>
@@ -238,8 +315,8 @@ export default function FamilyExplorer({ pair, height = 600, onExplore }: { pair
               {selEdge.p != null && <p className="mt-2">Chance this donation goes ahead: <strong>{Math.round(selEdge.p * 100)}%</strong></p>}
               {selEdge.reasons && selEdge.reasons.length > 0 && (
                 <>
-                  <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] muted">Why the graph says yes</p>
-                  <ul className="mt-1 space-y-1">{selEdge.reasons.map((x) => <li key={x} className="flex gap-2"><span style={{ color: "var(--forest-mid)" }}>•</span>{x}</li>)}</ul>
+                  <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] muted">Why it can work</p>
+                  <ul className="mt-1 space-y-1">{(selEdge.why ?? "").split("; ").filter(Boolean).map((x) => <li key={x} className="flex gap-2"><span style={{ color: "var(--forest-mid)" }}>•</span>{x[0].toUpperCase() + x.slice(1)}</li>)}</ul>
                   <p className="mt-2 text-xs muted">Stored on the link itself when it was built, so every explanation is read from the graph.</p>
                 </>
               )}
@@ -253,6 +330,7 @@ export default function FamilyExplorer({ pair, height = 600, onExplore }: { pair
               </p>
               <p className="mt-1 text-[1.15rem] font-semibold" style={{ color: "var(--ink-strong)" }}>{selNode.label}</p>
               {selNode.sub && <p className="muted">{selNode.sub}</p>}
+              {selNode.id !== center && <p className="mt-2 rounded-lg p-2.5" style={{ background: "var(--sage-pale)", color: "var(--ink-strong)" }}>{explainNode(selNode)}</p>}
               <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
                 {Object.entries(selNode.data).filter(([k, v]) => PRETTY[k] && v != null && v !== "").map(([k, v]) => (
                   <div key={k} className="contents"><dt className="muted">{PRETTY[k]}</dt><dd style={{ color: "var(--ink-strong)" }}>{Array.isArray(v) ? v.join(", ") || "none" : String(v)}</dd></div>

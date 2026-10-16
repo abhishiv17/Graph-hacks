@@ -48,7 +48,7 @@ export default function Lab() {
             ))}
           </div>
         )} />
-      <PageIntro id="replay" what={<>Every program has its own scenario built on the same framework: an initial state, a failure event, a repair strategy and the human review step it ends at. The {o.label.toLowerCase()} scenario {which === "liver" ? "uses a program-defined graft-size rule, not a copy of the kidney crossmatch story" : "is the positive-crossmatch story"}. It replays recorded outputs of the real backend and changes nothing.</>} />
+      <PageIntro id="replay" what={<>Each program&rsquo;s demo story, replayed step by step from a recording. Nothing here changes the live data.</>} />
       {def && <ScenarioCard def={def} o={o} />}
       {rec.error && !rec.data ? <ErrorState error={rec.error} onRetry={rec.reload} what="the recorded scenario" />
         : rec.data === undefined ? <Loading rows={8} />

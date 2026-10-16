@@ -21,13 +21,7 @@ export default function ImpactPage() {
       <div className="mb-4 rounded-[10px] border px-4 py-3 text-sm" role="note" style={{ borderColor: organ === "liver" ? "#ecd9b4" : "var(--line)", background: organ === "liver" ? "var(--warn-soft)" : "var(--surface)" }}>
         This simulated year models the <strong>kidney</strong> program only (<code>data/generated/sim_results.json</code>). There is no simulated year for the liver program in this build{organ === "liver" ? ", so nothing on this page describes liver exchanges" : ""}.
       </div>
-      <PageIntro id="impact"
-        what={<>What would a shared, failure-aware pool achieve over a year? We can&rsquo;t use real patients, so the simulator replays a <strong>synthetic year</strong> day by day: about 540 families arrive, some leave, lab results take 9 days, and some tests fail at published rates. The same year is run under four policies, 20 times each. All numbers are synthetic and measured by us.</>}
-        steps={[
-          <>Compare the bars: the jump from &ldquo;each hospital alone&rdquo; to a shared pool is the biggest gain.</>,
-          <>KindRed vs the matcher that ignores failures: same transplants, fewer wasted lab tests, faster matches.</>,
-          <>The last table checks the generator against a published study before we trust any of it.</>,
-        ]} />
+      <PageIntro id="impact" what={<>A simulated year of a national kidney pool, run 20 times under four ways of matching. All numbers are synthetic and measured by us.</>} />
       {sim.error && !d ? <ErrorState error={sim.error} onRetry={sim.reload} what="the simulation results" /> :
         !d ? <Loading rows={5} /> : !d.ready ? <EmptyState title="No simulation results yet">Run <code>python -m swapnet.sim.lab --runs 20</code> in the backend, then refresh.</EmptyState> : <Results d={d} />}
     </div>

@@ -58,9 +58,8 @@ function Audit() {
 
   return (
     <div>
-      <PageHeader title={view ? `${view.label} audit trail` : "Audit trail"} description={`Every event in order: what the system did, what the agents proposed, and what a coordinator decided.${view ? ` Showing the ${view.label.toLowerCase()} program and events shared by every program.` : ""}`} />
-      <PageIntro id="audit" what={<>Nothing in KindRed happens silently. Every agent action and every human decision is written to the graph as an <code>Event</code> or a <code>Decision</code> node linked to the facts it was based on. This is the agents&rsquo; shared memory, and the record a regulator or committee would read.</>}
-        steps={[<>Filter by who acted: an agent, the system, or a coordinator.</>, <>Agents keep working on their own (reminders, overdue tests), so new rows appear without anyone clicking.</>]} />
+      <PageHeader title={view ? `${view.label} audit trail` : "Audit trail"} />
+      <PageIntro id="audit" what={<>Every agent action and every person&rsquo;s decision, in order, as recorded in the graph.</>} />
       <div className="flex flex-wrap gap-2 mb-4">
         <label className="flex items-center gap-2 input !py-1.5 flex-1 min-w-[14rem] max-w-md">
           <Icon name="search" size={16} className="muted" /><span className="sr-only">Search events</span>

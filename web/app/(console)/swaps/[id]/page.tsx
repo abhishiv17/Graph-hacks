@@ -8,6 +8,9 @@ import { organOf } from "@/lib/organs";
 import { useProgram } from "@/lib/program";
 import type { Checklist, Evidence, Timeline } from "@/lib/data/types";
 import { PageIntro, Term } from "@/components/app/Help";
+import { families as nFamilies, plainCheck, plainFact, plainResult, swapName } from "@/lib/plain";
+import Walkthrough from "@/components/app/Walkthrough";
+import { swapWalk } from "@/lib/walkthrough";
 import { Icon } from "@/components/app/icons";
 import { useEvents, useLoop, usePool } from "@/lib/data/hooks";
 import { useAction, useData } from "@/lib/data/source";
@@ -96,10 +99,10 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
           <button className="font-semibold underline" onClick={() => program.setProgram(o.name)}>Switch to the {o.label.toLowerCase()} program</button>
         </Notice>
       )}
-      <PageHeader title={`${data.exchange_label ?? o.exchange} · ${id} · ${loop.kind}`}
-        description={<>{route(fams.map((f) => f.city))} · {loop.status === "broken"
-          ? <>a link failed, so this loop can&rsquo;t go ahead as planned</>
-          : <><Term k="chance">chance every link holds</Term> {pct(loop.p_success)} · <Term k="expected">expected</Term> {loop.expected_tx} of {fams.length} transplants</>}
+      <PageHeader title={swapName({ loop_id: id, organ: o.name }, fams.map((f) => f.city))}
+        description={<>{id} · {nFamilies(loop.kind, fams.length)} · {route(fams.map((f) => f.city))} · {loop.status === "broken"
+          ? <>a test failed, so this swap can&rsquo;t go ahead as planned</>
+          : <>{pct(loop.p_success)} chance every test passes · about {Number(loop.expected_tx).toFixed(1)} of {fams.length} transplants expected</>}
           {data.replaces && <> · replaces <Link className="underline" href={`/swaps/${data.replaces}`}>{data.replaces}</Link></>}</>}
         actions={<>
           <StatusPill status={loop.status} repairReady={repairReady} />
@@ -109,8 +112,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
             </button>
           )}
         </>} />
-      <PageIntro id="swap" what={<>One swap, start to finish. Every hospital has accepted its offer; now each donation needs a {o.name === "liver" ? <Term k="workup">donor work-up</Term> : <Term k="crossmatch">lab crossmatch</Term>}. <strong>{o.run}</strong> sends them to the (simulated) {o.name === "liver" ? "donor hospitals" : "labs"}. If one fails, that donation can&rsquo;t happen: KindRed records the failure in the graph, searches nearby for a replacement family, keeps a <Term k="fallback">2-way fallback</Term> ready, and waits for a person to approve.</>}
-        steps={[<>Click an arrow in the swap graph to see why that donation was chosen.</>, <>Offers and {o.tests.toLowerCase()} shows each donation&rsquo;s progress.</>, <>Committee papers shows which family&rsquo;s paperwork is holding the swap.</>]} />
+      <PageIntro id="swap" what={<>Each arrow is one donation: a donor gives {o.gift} to the next family&rsquo;s patient. Every donation is tested before surgery ({o.test}); if one fails, KindRed finds a replacement family and a person approves it.</>} />
       {act.error && <div className="mb-4"><ErrorState error={new Error(act.error)} what="that action" /></div>}
 
       {data.replaced_by && (
@@ -120,7 +122,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
       )}
       {failed && (
         <Notice tone="bad" icon="alert">
-          <span className="font-semibold">Link failed: {failed.from_city} donor → {failed.to_city} patient.</span> {failed.failed_detail}. The graph stores this as a failed link, so it is never proposed again.
+          <span className="font-semibold">A test failed: {failed.from_city} donor → {failed.to_city} patient.</span> {failed.failed_detail}. KindRed remembers this, so it never suggests that donation again.
         </Notice>
       )}
 
@@ -129,8 +131,11 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
         <Notice tone="ok" icon="check">Repair approved by the exchange coordinator. New exchange: <Link className="font-semibold underline" href={`/swaps/${prop.result}`}>{prop.result}</Link>.</Notice>
       )}
 
+      <div className="mt-4">
+        <Walkthrough load={(lang) => swapWalk(id, lang)} onStep={(st) => setEdge(st?.edges[0] ?? null)} label="Explain this swap, step by step" />
+      </div>
       <div className="mt-6 grid xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-8">
-        <Section title="The swap as a graph" description="Each circle is a family: its patient and donor. Each arrow is one donation. Click an arrow to see why, or a family to open it in the graph explorer."
+        <Section title="Who gives to whom" description="Each circle is a family. Click an arrow to see why that donation works."
           actions={openRepair && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showRepair} onChange={(e) => setShowRepair(e.target.checked)} /> Show proposed repair</label>}>
           <div className="rounded-2xl border p-2 sm:p-3" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
             {graph && <ExchangeGraph idPrefix="ex" height={480} nodes={graph.nodes} edges={graph.edges} selected={edge} onSelectEdge={setEdge}
@@ -140,35 +145,24 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
           </div>
         </Section>
 
-        <Section title="Why this link" description="What the graph knows, and what the model estimates.">
-          {!sel ? <EmptyState title="Select a link in the graph">Or pick one here:
+        <Section title="Why this donation works">
+          {!sel ? <EmptyState title="Pick a donation">Click an arrow, or choose one here:
             <span className="mt-3 flex flex-wrap justify-center gap-2">{(data.links as any[]).map((l) => <button key={l.pos} className="btn btn-sm" onClick={() => setEdge(`${l.from_pair}>${l.to_pair}`)}>{l.from_city} → {l.to_city}</button>)}</span>
           </EmptyState> : (
-            <div className="panel p-4 space-y-4">
+            <div className="panel p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold" style={{ color: "var(--ink-strong)" }}>{sel.from_city} donor ({sel.from_pair}) → {sel.to_city} patient ({sel.to_pair})</p>
-                {sel.status === "failed" ? <Tag tone="bad">Failed</Tag> : selWf?.result === "negative" ? <Tag tone="ok">{o.passed}</Tag> : <Tag tone="warn">Test pending</Tag>}
+                <p className="font-semibold" style={{ color: "var(--ink-strong)" }}>{sel.from_city} donor ({sel.donor_relation}) → {sel.to_city} patient</p>
+                {sel.status === "failed" ? <Tag tone="bad">Failed</Tag> : selWf?.result === "negative" ? <Tag tone="ok">Test passed</Tag> : <Tag tone="warn">Test not done yet</Tag>}
               </div>
-              <div>
-                <p className="label mb-1">Recorded facts</p>
-                <ul className="text-sm list-disc pl-5 space-y-0.5">
-                  <li>Donor blood group {sel.donor_abo} ({sel.donor_relation}); patient blood group {sel.patient_abo}</li>
-                  {(sel.reasons as string[]).filter((r) => !ESTIMATE.test(r)).map((r) => <li key={r}>{r}</li>)}
-                  {selWf?.test && <li>{o.test[0].toUpperCase() + o.test.slice(1)} {selWf.result === "pending" ? `requested, due ${fmtDate(selWf.due)}` : selWf.result === "cancelled" ? "not sent: the loop broke first" : o.outcome[selWf.result as "negative" | "positive"] ?? selWf.result}{selWf.antibody ? ` (${selWf.antibody})` : ""}</li>}
-                  {sel.failed_detail && <li style={{ color: "var(--bad)" }}>{sel.failed_detail}</li>}
-                </ul>
-              </div>
-              <div>
-                <p className="label mb-1">Model estimates</p>
-                <ul className="text-sm list-disc pl-5 space-y-0.5">
-                  {(sel.reasons as string[]).filter((r) => ESTIMATE.test(r)).map((r) => <li key={r}>{r}</li>)}
-                  <li>Chance this link holds: {pct(sel.p_success)}, estimated from past failures</li>
-                </ul>
-              </div>
-              <div>
-                <p className="label mb-1">Coordination</p>
-                <p className="text-sm">{selWf?.offered ? `Offers sent; ${selWf.accepts} of 2 hospitals accepted${selWf.holds ? `, ${selWf.holds} on hold` : ""}.` : "Offers not sent yet."}</p>
-              </div>
+              <ul className="text-sm space-y-1">
+                {(sel.reasons as string[]).map((r) => <li key={r} className="flex gap-2"><span style={{ color: "var(--ok)" }}><Icon name="check" size={14} /></span>{plainFact(r)}</li>)}
+                {sel.failed_detail && <li style={{ color: "var(--bad)" }}>{sel.failed_detail}</li>}
+              </ul>
+              <p className="text-sm"><span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{pct(sel.p_success)}</span> chance it works, from how often similar donations failed before.
+                {" "}{selWf?.offered ? `${selWf.accepts} of 2 hospitals have said yes.` : "Hospitals not asked yet."}</p>
+              <details className="text-xs muted"><summary className="cursor-pointer">Exact reasons stored in the graph</summary>
+                <ul className="mt-1 list-disc pl-5">{(sel.reasons as string[]).map((r) => <li key={r}>{r}</li>)}<li>Donor {sel.donor_abo}, patient {sel.patient_abo}</li></ul>
+              </details>
             </div>
           )}
         </Section>
@@ -176,7 +170,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
 
       {data.evidence && (
         <div className="mt-10 grid xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-8">
-          <EvidencePanel ev={data.evidence} />
+          <EvidencePanel ev={data.evidence} cityOf={(pid) => fams.find((f) => f.pair_id === pid)?.city ?? pid} />
           <div className="space-y-8">
             {data.checklist && <ChecklistPanel c={data.checklist} label={o.label} />}
             {data.timeline && <TimelinePanel t={data.timeline} />}
@@ -188,13 +182,13 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
         <Section title="Families">
           <div className="panel overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Pair</th><th>Donor</th><th>Patient</th><th>Gives to</th></tr></thead>
+              <thead><tr><th>Family</th><th>Donor</th><th>Patient</th><th>Donor gives to</th></tr></thead>
               <tbody>
                 {fams.map((f, i) => (
                   <tr key={f.pair_id}>
                     <td><Link className="font-semibold hover:underline" href={`/case/${f.pair_id}`}>{f.pair_id}</Link><span className="block text-xs muted">{f.city}</span></td>
-                    <td className="text-sm">{f.donor_relation}, {f.donor_abo}{f.liver && <span className="block text-xs muted">liver {f.liver.liver_volume_ml} ml ({f.liver.volumetry === "estimate" ? "estimated, CT pending" : "CT"})</span>}<span className="block text-xs muted">own clash: {f.own_clash}</span></td>
-                    <td className="text-sm">{f.patient_abo}, {o.patient(f)}{f.failed_count ? <span className="block text-xs" style={{ color: "var(--bad)" }}>{f.failed_count} earlier failed link(s)</span> : null}</td>
+                    <td className="text-sm">{f.donor_relation}, {f.donor_abo}{f.liver && <span className="block text-xs muted">liver {f.liver.liver_volume_ml} ml ({f.liver.volumetry === "estimate" ? "estimated, CT pending" : "CT"})</span>}<span className="block text-xs muted">can&rsquo;t give to own patient: {f.own_clash}</span></td>
+                    <td className="text-sm">blood group {f.patient_abo}, {hardness(f)}{f.failed_count ? <span className="block text-xs" style={{ color: "var(--bad)" }}>{f.failed_count} earlier failed link(s)</span> : null}</td>
                     <td className="text-sm">{fams[(i + 1) % fams.length].city}</td>
                   </tr>
                 ))}
@@ -203,15 +197,15 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
           </div>
         </Section>
 
-        <Section title={`Offers and ${o.tests.toLowerCase()}`}>
+        <Section title="Hospitals and tests">
           <div className="panel overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Link</th><th>Offers</th><th>{o.test}</th></tr></thead>
+              <thead><tr><th>Donation</th><th>Hospitals said yes</th><th>Test</th></tr></thead>
               <tbody>
                 {(data.workflow as any[]).map((w) => (
                   <tr key={w.link}>
                     <td className="text-sm">{w.link}</td>
-                    <td className="text-sm">{w.offered ? `${w.accepts}/2 accepted${w.holds ? `, ${w.holds} on hold` : ""}` : "not sent"}</td>
+                    <td className="text-sm">{w.offered ? `${w.accepts} of 2${w.holds ? `, ${w.holds} waiting` : ""}` : "not asked yet"}</td>
                     <td>{!w.test ? <span className="muted">–</span> : w.result === "pending" ? <Tag tone="warn">Requested</Tag> : w.result === "cancelled" ? <Tag tone="neutral" title="Another link failed first, so this test was never sent">Not needed</Tag> : w.result === "positive" ? <Tag tone="bad">{o.failed} ({w.antibody})</Tag> : <Tag tone="ok">{o.outcome.negative[0].toUpperCase() + o.outcome.negative.slice(1)}</Tag>}</td>
                   </tr>
                 ))}
@@ -222,7 +216,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
       </div>
 
       <div className="mt-10 grid xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-8">
-        <Section title="Timeline" description="Newest first.">
+        <Section title="What happened" description="Newest first.">
           {stream.length === 0 ? <EmptyState title="No events recorded for this exchange yet" /> : (
             <ol className="border-l-2 pl-5 space-y-4" style={{ borderColor: "var(--line)" }}>
               {stream.map((s, i) => (
@@ -238,7 +232,7 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
           )}
         </Section>
 
-        <Section title="Committee papers" description="Every pair needs its own approval; one missing paper holds the whole exchange.">
+        <Section title="Committee papers" description="In India every family needs the legal committee's approval. One missing paper holds up the whole swap.">
           {data.committee?.blocking && <ChaseLadder pair={(data.committee.pairs as any[]).find((p) => p.pair_id === data.committee.blocking)} busy={act.busy}
             onChase={() => act.run("chase", (a) => a.chase(id))} />}
           <ul className="panel divide-y">
@@ -259,61 +253,63 @@ export default function ExchangeDetail({ params }: { params: Promise<{ id: strin
   );
 }
 
+/** How hard this patient is to match, in words (the number stays for reviewers). */
+function hardness(f: any) {
+  if (f.meld != null) return f.meld >= 25 ? `very ill (MELD ${f.meld})` : `MELD ${f.meld}`;
+  if (f.cpra != null) return f.cpra > 85 ? `hard to match (cPRA ${f.cpra}%)` : "easy to match";
+  return "";
+}
+
 const APPROVAL_TONE: Record<string, "ok" | "warn" | "bad" | "neutral"> = { APPROVED: "ok", PENDING: "warn", DECLINED: "bad", NOT_APPLICABLE: "neutral" };
 
 /** Every recommendation, traceable: the facts on its graph edge, the constraints it satisfies, what a person should
  *  look at, its test, and where it stands at the human review step. Nothing here is written by a language model. */
-function EvidencePanel({ ev }: { ev: Evidence }) {
+function EvidencePanel({ ev, cityOf }: { ev: Evidence; cityOf: (pid: string) => string }) {
   const [rules, setRules] = useState(false);
+  const who = (edge: string) => edge.split(" → ").map(cityOf).join(" → ");
   return (
-    <Section title="Evidence" description={`${ev.exchange_label}: what each recommendation rests on. ${ev.organ_isolated ? "Every pair and link is in the " + ev.organ + " program." : "Warning: this loop mixes programs."}`}>
+    <Section title="Why each donation was chosen" description="Every reason comes from the graph, not from AI.">
       <div className="space-y-3">
         {ev.proposal && (
           <div className="rounded-[10px] border-2 p-4" style={{ borderColor: "var(--forest-mid)", background: "var(--surface)" }}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>{ev.proposal.recommendation_id} · repair {ev.proposal.route}</p>
-              <Tag tone="warn">Human approval {ev.proposal.human_approval.status.toLowerCase()}</Tag>
+              <p className="text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>Proposed fix: {ev.proposal.route}</p>
+              <Tag tone="warn">Needs a person&rsquo;s OK</Tag>
             </div>
-            <ul className="mt-2 text-sm list-disc pl-5 space-y-0.5">{ev.proposal.facts.map((f) => <li key={f}>{f}</li>)}</ul>
+            <ul className="mt-2 text-sm space-y-0.5">{ev.proposal.facts.map((f) => <li key={f}>{plainFact(f)}</li>)}</ul>
           </div>
         )}
-        {ev.links.map((l) => (
+        {ev.links.map((l, i) => (
           <div key={l.recommendation_id} className="panel p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold tnum" style={{ color: "var(--ink-strong)" }}>{l.recommendation_id} · {l.candidate_edge}</p>
-              <span className="flex flex-wrap gap-1.5">
-                {l.failure ? <Tag tone="bad">Failed: {l.failure.cause.replace(/_/g, " ")}</Tag> : null}
-                <Tag tone={APPROVAL_TONE[l.human_approval.status] ?? "neutral"} title={l.human_approval.note}>{l.human_approval.step}: {l.human_approval.status.toLowerCase().replace("_", " ")}</Tag>
-              </span>
+              <p className="text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>Donation {i + 1}: {who(l.candidate_edge)}</p>
+              {l.failure ? <Tag tone="bad">Failed</Tag>
+                : <Tag tone={l.test.result === "negative" ? "ok" : "warn"}>Test {plainResult(l.test.result)}</Tag>}
             </div>
-            {l.facts.length > 0 && (
-              <div className="mt-2">
-                <p className="label mb-1">Facts on the graph edge</p>
-                <ul className="text-sm list-disc pl-5 space-y-0.5">{l.facts.map((f) => <li key={f}>{f}</li>)}</ul>
-              </div>
-            )}
+            <ul className="mt-2 text-sm space-y-0.5">{l.facts.map((f) => <li key={f}>{plainFact(f)}</li>)}</ul>
             {l.failure && <p className="mt-2 text-sm" style={{ color: "var(--bad)" }}>{l.failure.detail}</p>}
-            <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Constraints satisfied">
-              {l.constraints_satisfied.map((c) => <Tag key={c} tone="ok">{c.toLowerCase().replace(/_/g, " ")}</Tag>)}
-            </div>
-            {l.flags.length > 0 && <ul className="mt-2 text-xs space-y-0.5" style={{ color: "var(--warn)" }}>{l.flags.map((f) => <li key={f}>⚑ {f.split(": ").slice(1).join(": ") || f}</li>)}</ul>}
-            <p className="mt-2 text-xs muted">{l.test.name}: {l.test.result}{l.test.finding ? ` (${l.test.finding})` : ""}{l.p_success != null ? ` · model estimate ${Math.round(l.p_success * 100)}% likely to hold` : ""}</p>
+            <p className="mt-2 flex flex-wrap gap-1.5" aria-label="Checks passed">
+              {l.constraints_satisfied.map((c) => <Tag key={c} tone="ok">{plainCheck(c)}</Tag>)}
+            </p>
+            <p className="mt-2 text-xs muted">
+              {l.p_success != null ? `${Math.round(l.p_success * 100)}% chance it works · ` : ""}Committee approval: {l.human_approval.status === "APPROVED" ? "done" : "waiting"}
+              {l.flags.length > 0 && <> · <span style={{ color: "var(--warn)" }}>{l.flags.map((f) => f.split(": ").slice(1).join(": ") || f).join("; ")}</span></>}
+            </p>
           </div>
         ))}
         <button className="text-sm font-medium underline" style={{ color: "var(--forest)" }} onClick={() => setRules((r) => !r)} aria-expanded={rules}>
-          {rules ? "Hide" : "Show"} the rules this program applies
+          {rules ? "Hide" : "Show"} the medical rules this program checks
         </button>
         {rules && (
           <ul className="panel divide-y">
             {ev.rules.map((r) => (
               <li key={r.code} className="px-4 py-2.5 text-sm">
-                <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{r.code.toLowerCase().replace(/_/g, " ")}</span>: {r.text}
+                <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{plainCheck(r.code)}</span>: {r.text}
                 <span className="block text-xs muted">Source: {r.source}</span>
               </li>
             ))}
           </ul>
         )}
-        <p className="text-xs muted">{ev.source}</p>
       </div>
     </Section>
   );
@@ -322,7 +318,7 @@ function EvidencePanel({ ev }: { ev: Evidence }) {
 /** The program's committee checklist for this swap. Kidney and liver check different things. */
 function ChecklistPanel({ c, label }: { c: Checklist; label: string }) {
   return (
-    <Section title="Committee readiness" description={`${label} program checklist (program configuration).`}>
+    <Section title="Ready for the committee?" description={`What the ${label.toLowerCase()} committee checks.`}>
       <div className="panel p-4">
         <div className="flex items-center gap-3">
           <div className="h-2 flex-1 rounded-full" style={{ background: "var(--surface-soft)" }} role="progressbar" aria-valuenow={c.readiness_pct} aria-valuemin={0} aria-valuemax={100} aria-label="Readiness">
@@ -350,7 +346,7 @@ function ChecklistPanel({ c, label }: { c: Checklist; label: string }) {
 function TimelinePanel({ t }: { t: Timeline }) {
   const DOTC: Record<string, string> = { done: "var(--forest-mid)", current: "var(--mint)", upcoming: "var(--line-strong)", paused: "var(--bad-mark)" };
   return (
-    <Section title="Proposed timeline" description={t.note}>
+    <Section title="Planned steps" description="Proposed dates (synthetic).">
       <ol className="panel p-4 space-y-3">
         {t.steps.map((s) => (
           <li key={s.key} className="flex items-start gap-3 text-sm">

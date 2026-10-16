@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { plainFact, swapName } from "@/lib/plain";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PoolMap, { linkKey } from "@/components/app/PoolMap";
@@ -94,37 +95,30 @@ function LivePool() {
         </div>
         <div className="flex flex-wrap items-start gap-3">
           <ActionButton label={act.busy === "reset" ? "Restarting…" : "Restart demo"} icon="reset" disabled={!!act.busy}
-            hint={mode === "offline" ? "Offline: restart the recorded demo replay. The API isn't reachable, so nothing is rebuilt." : "Rebuild the synthetic kidney and liver families and run this week's match again."}
+            hint={mode === "offline" ? "Offline: restart the recorded demo replay. The API isn't reachable, so nothing is rebuilt." : "Start the demo again from the beginning."}
             onClick={() => { if (confirm("Restart the demo? Every swap, lab result and approval goes back to the starting point.")) act.run("reset", (a) => a.reset()); }} />
           {organ !== "liver" && (
             <ActionButton label={act.busy === "chennai" ? "Adding…" : chennaiAdded ? "Chennai family added" : "Add a kidney family (Chennai)"} disabled={!!act.busy || chennaiAdded}
-              hint="A new kidney patient and donor register in Chennai. The intake agent checks the legal rules and adds their links to the graph."
+              hint="A new family joins the pool in Chennai."
               onClick={() => act.run("chennai", (a) => a.addChennai())} />
           )}
           <ActionButton primary label={act.busy === "plan" ? "Matching…" : "Re-run matching"} disabled={!!act.busy || mode === "offline"}
-            hint="Find every possible swap among families still waiting, program by program, then let the optimiser choose the best set."
+            hint="Look for swaps for the families still waiting."
             onClick={() => act.run("plan", (a) => a.runPlan())} />
         </div>
       </div>
       {act.error && <div className="mb-4"><ErrorState error={new Error(act.error)} what="that action" /></div>}
       <PatientBanner id={params.get("patient")} />
 
-      {!fromPatient && <PageIntro id="pool" what={<>The shared pool of families from every hospital. Each dot is a hospital. Each line is one planned <Term k="link">donation</Term>: a donor from one family gives a kidney, or part of their liver, to the patient of another family. Lines that close a ring make one <Term k="loop">swap loop</Term>. {view ? <>This view shows the {view.label.toLowerCase()} program only.</> : <>All programs: kidney and liver loops are listed side by side, but families only ever swap within their own program; the line colour shows which.</>}</>}
-        steps={[
-          <>Scroll or pinch to zoom; drag to move around the map.</>,
-          <>Click any single line to see that donation: who gives to whom, how likely it is to hold, and the reasons stored in the graph.</>,
-          <>Click a hospital to see only its families&rsquo; donations, or pick a swap from the list on the right.</>,
-        ]} />}
+      {!fromPatient && <PageIntro id="pool" what={<>Every dot is a hospital and every line is one donation between two families. Click a line to see why it works, or a swap on the right to light it up.</>} />}
 
       <dl className="mb-4 grid grid-cols-2 lg:grid-cols-4 border rounded-[10px] overflow-hidden" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
         {([
-          ["Families waiting", t ? (organ === "liver" ? t.liver_waiting : organ === "kidney" ? t.waiting - (t.liver_waiting ?? 0) : t.waiting) : null, <>Not in any planned swap yet</>],
-          [<Term key="s" k="loop">Swaps planned</Term>, bo ? bo.loops : t?.loops, <>{organ ? "" : `${byOrgan(raw, (o) => o.loops)} · `}{links.length} donations</>],
-          [<Term key="e" k="expected">Expected transplants</Term>, bo ? bo.expected_tx : t?.expected_tx, <>out of {bo ? bo.planned_tx : t?.planned_tx ?? "–"} if every test passed{organ ? "" : ` · ${byOrgan(raw, (o) => o.expected_tx)}`}</>],
-          organ === "liver" ? ["Hardest to match", t?.liver_urgent ?? 0, <>liver patients with <Term k="meld">MELD</Term> 25 or more</>]
-            : organ === "kidney" ? ["Hardest to match", t?.highly_sensitised, <>patients with <Term k="cpra">cPRA</Term> above 85%</>]
-            : ["Hardest to match", t ? <>{t.highly_sensitised} <span className="text-base font-normal muted">kidney</span> · {t.liver_urgent ?? 0} <span className="text-base font-normal muted">liver</span></> : null,
-              <>kidney: <Term k="cpra">cPRA</Term> above 85% · liver: <Term k="meld">MELD</Term> 25 or more</>],
+          ["Families still waiting", t ? (organ === "liver" ? t.liver_waiting : organ === "kidney" ? t.waiting - (t.liver_waiting ?? 0) : t.waiting) : null, <>not in a swap yet</>],
+          ["Swaps planned", bo ? bo.loops : t?.loops, <>{links.length} donations in total</>],
+          ["Transplants expected", bo ? bo.expected_tx : t?.expected_tx, <>out of {bo ? bo.planned_tx : t?.planned_tx ?? "–"} if every test passes</>],
+          ["Hardest to match", organ === "liver" ? t?.liver_urgent ?? 0 : organ === "kidney" ? t?.highly_sensitised : t ? (t.highly_sensitised ?? 0) + (t.liver_urgent ?? 0) : null,
+            <>patients very few donors fit</>],
         ] as [React.ReactNode, React.ReactNode, React.ReactNode][]).map(([k, v, sub], i) => (
           <div key={i} className={`px-4 py-3 ${i % 2 ? "border-l" : ""} ${i > 1 ? "border-t lg:border-t-0" : ""} ${i === 2 ? "lg:border-l" : ""}`} style={{ borderColor: "var(--line)" }}>
             <dt className="label">{k}</dt>
@@ -157,29 +151,29 @@ function LivePool() {
                 <>
                   {focus && (
                     <div className="p-5 sm:p-6 border-b" style={panelBorder}>
-                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#66736B" }}>Swap in focus · bold lines on the map</p>
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#66736B" }}>Shown in bold on the map</p>
                       <div className="mt-2 flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-display text-2xl leading-tight" style={{ color: "#183B32" }}>{focus.loop_id} <span className="text-base" style={{ color: "#66736B" }}>· {organOf(focus).label.toLowerCase()} · {focus.kind}</span></p>
-                          <p className="mt-1 text-[0.95rem]" style={{ color: "#34433D" }}>{loopRoute(focus)}</p>
+                          <p className="font-display text-2xl leading-tight" style={{ color: "#183B32" }}>{swapName(focus)}</p>
+                          <p className="mt-1 text-[0.95rem]" style={{ color: "#34433D" }}>{loopRoute(focus)} <span style={{ color: "#66736B" }}>· {focus.pairs.length} families · {focus.loop_id}</span></p>
                         </div>
                         <DarkStatus status={focus.status} repair={tasks.has(focus.loop_id)} />
                       </div>
                       {focus.status === "broken" ? (
-                        <p className="mt-4 text-sm" style={{ color: "#C2463A" }}>A link failed, so this loop can&rsquo;t go ahead as planned. Open it to review the repair.</p>
+                        <p className="mt-4 text-sm" style={{ color: "#C2463A" }}>A test failed, so this swap can&rsquo;t go ahead as planned. Open it to see the fix.</p>
                       ) : (
                         <div className="mt-4 grid grid-cols-2 gap-4 text-sm" style={{ color: "#66736B" }}>
-                          <div><span className="block font-display text-2xl tnum" style={{ color: "#1F2C27" }}>{pct(focus.p_success)}</span><Term k="chance">chance every link holds</Term></div>
-                          <div><span className="block font-display text-2xl tnum" style={{ color: "#1F2C27" }}>{focus.expected_tx} <span className="text-base">of {focus.pairs.length}</span></span><Term k="expected">expected transplants</Term>{focus.has_fallback && <> · has a <Term k="fallback">fallback</Term></>}</div>
+                          <div><span className="block font-display text-2xl tnum" style={{ color: "#1F2C27" }}>{pct(focus.p_success)}</span>chance it all works</div>
+                          <div><span className="block font-display text-2xl tnum" style={{ color: "#1F2C27" }}>{focus.expected_tx} <span className="text-base">of {focus.pairs.length}</span></span>transplants expected{focus.has_fallback && <> · backup ready</>}</div>
                         </div>
                       )}
                       <Link href={`/swaps/${focus.loop_id}`} className="mt-5 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold"
                             style={{ background: "var(--mint)", color: "var(--forest-deep)" }}>
-                        {organOf(focus).tests} and papers for this swap <Icon name="chevron" size={15} />
+                        Open this swap <Icon name="chevron" size={15} />
                       </Link>
                     </div>
                   )}
-                  <p className="px-5 sm:px-6 pt-4 pb-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#66736B" }}>All planned swaps · {loops.length} · click one to light it up</p>
+                  <p className="px-5 sm:px-6 pt-4 pb-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "#66736B" }}>All swaps · {loops.length} · click one to see it on the map</p>
                   <ul className="flex-1 overflow-y-auto max-h-[360px] lg:max-h-none px-2 sm:px-3 pb-3">
                     {!pool ? <li className="px-3 py-2 text-sm" style={{ color: "#66736B" }}>Loading…</li> : loops.map((l) => (
                       <li key={l.loop_id}>
@@ -187,9 +181,10 @@ function LivePool() {
                                 aria-pressed={shown === l.loop_id} style={{ background: shown === l.loop_id ? "rgba(44,90,75,0.08)" : undefined }}
                                 onClick={() => pickLoop(l.loop_id)}>
                           <span className="h-2 w-2 rounded-full shrink-0" style={{ background: l.status === "broken" || tasks.has(l.loop_id) ? "#C2463A" : l.status === "testing" ? "#D99A35" : "#2C8A62" }} aria-hidden="true" />
-                          <span className="font-semibold tnum text-sm w-14 shrink-0" style={{ color: "#1F2C27" }}>{l.loop_id}</span>
-                          <span className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] w-10 shrink-0" style={{ color: organOf(l).line }}>{organOf(l).label}</span>
-                          <span className="flex-1 truncate text-sm" style={{ color: "#4A5952" }}>{loopRoute(l)}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate text-sm font-semibold" style={{ color: "#1F2C27" }}>{loopRoute(l)}</span>
+                            <span className="block text-[0.7rem]" style={{ color: organOf(l).tone }}>{organOf(l).label} · {l.pairs.length} families · {l.loop_id}</span>
+                          </span>
                           <span className="text-xs shrink-0" style={{ color: "#66736B" }}>{statusOf(l.status, tasks.has(l.loop_id)).label}</span>
                         </button>
                       </li>
@@ -364,49 +359,42 @@ function LinkPanel({ link, pool, onClose, onStep }: { link: PoolLink; pool: Pool
   const o = organOf(link);
   return (
     <div className="flex-1 overflow-y-auto">
-      <PanelHead label="One planned donation" onClose={onClose}
+      <PanelHead label="One donation" onClose={onClose}
         title={<>{where(link.from_pair)} <span style={{ color: "#66736B" }}>→</span> {where(link.to_pair)}</>}
-        sub={<>The donor from family {link.from_pair} gives {o.gift} to the patient of family {link.to_pair}.</>} />
+        sub={<>A donor in {where(link.from_pair)} ({link.donor_relation}) gives {o.gift} to a patient in {where(link.to_pair)}.</>} />
       <div className="p-5 sm:p-6 space-y-5 text-sm" style={{ color: "#34433D" }}>
-        <div className="grid grid-cols-2 gap-4">
-          <div><p className={kicker} style={{ color: "#66736B" }}>Donor</p><p className="mt-0.5" style={{ color: "#1F2C27" }}>{link.donor_relation}, blood group {link.donor_abo}{link.lobe ? <>, {link.lobe} lobe (<Term k="grwr">GRWR</Term> {link.grwr}%)</> : null}</p><p className="text-xs">{where(link.from_pair)} · {link.from_pair}</p></div>
-          <div><p className={kicker} style={{ color: "#66736B" }}>Patient</p><p className="mt-0.5" style={{ color: "#1F2C27" }}>blood group {link.patient_abo}, {o.name === "liver" ? <><Term k="meld">MELD</Term> {link.patient_meld}, {link.patient_weight_kg} kg</> : <><Term k="cpra">cPRA</Term> {link.patient_cpra}%</>}</p><p className="text-xs">{where(link.to_pair)} · {link.to_pair}</p></div>
-        </div>
+        {loop && ring.length > 1 && (
+          <p className="rounded-lg px-3 py-2.5" style={{ background: "var(--sage-pale)", color: "#1F2C27" }}>
+            This is donation {i + 1} of {ring.length} in the <span className="font-semibold">{swapName(loop)}</span>. All {ring.length} must work for the swap to go ahead.
+          </p>
+        )}
         {failed ? (
           <div className="rounded-lg px-3 py-2.5" style={{ background: "#FBEDEB", color: "#9E4238" }}>
-            <p className="font-semibold">This donation failed its {o.test}</p>
-            <p className="mt-0.5">{link.failed_detail ?? link.failed_cause}. The graph remembers it as a <code>FAILED</code> edge, so this donor is never proposed to this patient again.</p>
+            <p className="font-semibold">This donation failed its test</p>
+            <p className="mt-0.5">{link.failed_detail ?? link.failed_cause}. KindRed remembers it and never suggests it again.</p>
           </div>
         ) : (
           <div>
-            <div className="flex items-baseline justify-between"><span>Chance it holds</span><span className="font-display text-2xl tnum" style={{ color: "#183B32" }}>{Math.round(p * 100)}%</span></div>
+            <div className="flex items-baseline justify-between"><span>Chance it works</span><span className="font-display text-2xl tnum" style={{ color: "#183B32" }}>{Math.round(p * 100)}%</span></div>
             <div className="mt-1.5 h-2 rounded-full" style={{ background: "var(--line)" }}><div className="h-full rounded-full" style={{ width: `${p * 100}%`, background: "#2C8A62" }} /></div>
-            <p className="mt-1.5 text-xs" style={{ color: "#66736B" }}>{o.chanceNote}</p>
           </div>
         )}
         <div>
-          <p className={kicker} style={{ color: "#66736B" }}>Why the graph says this can work</p>
+          <p className={kicker} style={{ color: "#66736B" }}>Why it can work</p>
           <ul className="mt-1.5 space-y-1.5">
-            {(link.reasons ?? []).map((r) => <li key={r} className="flex gap-2"><span className="mt-0.5 shrink-0" style={{ color: "#2C8A62" }}><Icon name="check" size={14} /></span>{r}</li>)}
-            {!link.reasons?.length && <li style={{ color: "#66736B" }}>No live compatibility edge (the link failed).</li>}
+            {(link.reasons ?? []).map((r) => <li key={r} className="flex gap-2"><span className="mt-0.5 shrink-0" style={{ color: "#2C8A62" }}><Icon name="check" size={14} /></span>{plainFact(r)}</li>)}
+            {!link.reasons?.length && <li style={{ color: "#66736B" }}>No reasons left: this donation failed.</li>}
           </ul>
         </div>
-        {loop && (
-          <div className="rounded-lg border px-3 py-3" style={{ borderColor: "var(--line)" }}>
-            <p>Part of swap <span className="font-semibold" style={{ color: "#183B32" }}>{loop.loop_id}</span> ({loop.kind}): {loopRoute(loop)}. It only goes ahead if all {ring.length} donations in the ring hold.</p>
-            {ring.length > 1 && (
-              <div className="mt-2.5 flex flex-wrap gap-2">
-                <button className={pill} style={{ borderColor: "var(--line)" }} onClick={() => onStep(linkKey(ring[(i - 1 + ring.length) % ring.length]))}>← Previous donation in this swap</button>
-                <button className={pill} style={{ borderColor: "var(--line)" }} onClick={() => onStep(linkKey(ring[(i + 1) % ring.length]))}>Next donation →</button>
-              </div>
-            )}
+        {ring.length > 1 && (
+          <div className="flex flex-wrap gap-2">
+            <button className={pill} style={{ borderColor: "var(--line)" }} onClick={() => onStep(linkKey(ring[(i - 1 + ring.length) % ring.length]))}>← Previous donation</button>
+            <button className={pill} style={{ borderColor: "var(--line)" }} onClick={() => onStep(linkKey(ring[(i + 1) % ring.length]))}>Next donation →</button>
           </div>
         )}
-        <div className="flex flex-wrap gap-2">
-          <Link href={`/swaps/${link.loop_id}`} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold" style={{ background: "var(--mint)", color: "var(--forest-deep)" }}>Open swap {link.loop_id} <Icon name="chevron" size={15} /></Link>
-          <Link href={`/case/${link.to_pair}`} className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold hover:bg-[var(--surface-soft)]" style={{ borderColor: "var(--line)", color: "#1F2C27" }}>What this patient&rsquo;s family sees</Link>
-        </div>
-        <p className="text-xs" style={{ color: "#66736B" }}>Read live from FalkorDB: the <code>CAN_GIVE_TO</code> edge between two <code>Pair</code> nodes (query Q24_loop_links). Synthetic data.</p>
+        <Link href={`/swaps/${link.loop_id}`} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold" style={{ background: "var(--mint)", color: "var(--forest-deep)" }}>
+          Open the {loop ? swapName(loop) : `swap ${link.loop_id}`} <Icon name="chevron" size={15} />
+        </Link>
       </div>
     </div>
   );
@@ -423,7 +411,7 @@ function CityPanel({ code, pool, onClose, onPickLoop, onPickLink }: { code: stri
   return (
     <div className="flex-1 overflow-y-auto">
       <PanelHead label="Hospital" onClose={onClose} title={h?.city ?? code}
-        sub={<>{h?.pairs} families registered here{h?.liver_pairs ? ` (${h.liver_pairs} liver)` : ""}. Names and documents stay in this hospital&rsquo;s own private graph (<code>hosp_{code.toLowerCase()}</code>); only the medical facts matching needs are shared.</>} />
+        sub={<>{h?.pairs} families registered here{h?.liver_pairs ? ` (${h.liver_pairs} liver)` : ""}. Names and documents never leave this hospital; only what matching needs is shared.</>} />
       <div className="p-5 sm:p-6 space-y-5 text-sm" style={{ color: "#34433D" }}>
         <div>
           <p className={`${kicker} mb-1.5`} style={{ color: "#66736B" }}>Donations in and out · {touching.length} · click to inspect</p>

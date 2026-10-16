@@ -48,9 +48,8 @@ export default function IntegrityPage() {
   return (
     <div>
       <PageHeader title={view ? `${view.label} integrity checks` : "Integrity checks"}
-        description="Workflow and data-completeness checks over the shared exchange graph. They flag what a person should look at; they never diagnose or judge a patient." />
-      <PageIntro id="integrity"
-        what={<>Two levels of checks run against the graph. <strong>Shared checks</strong> apply to every program: missing pair or hospital references, broken loop links, links without recorded evidence, a link or loop that crosses programs, inconsistent statuses, and repairs adopted without a recorded human approval. <strong>Program checks</strong> come from each organ module: {view?.name === "liver" ? "liver profiles, graft size still estimated at committee stage, and open anatomical, donor, recipient or surgical suitability reviews" : view?.name === "kidney" ? "missing sensitisation (cPRA), untyped loci awaiting a crossmatch, and links that reached committee without a negative crossmatch" : "kidney checks crossmatches and sensitisation; liver checks graft-size confirmation and open evaluation reviews"}.</>} />
+/>
+      <PageIntro id="integrity" what={<>Checks that the data and the workflow make sense, for example no swap mixes kidney and liver. They point a person to something to look at; they never judge a patient.</>} />
       {res.error && !d ? <ErrorState error={res.error} onRetry={res.reload} what="the integrity checks" /> : !d ? <Loading rows={6} /> : (
         <>
           <div className="mb-8">

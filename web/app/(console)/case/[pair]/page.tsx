@@ -18,9 +18,9 @@ export default function Case({ params }: { params: Promise<{ pair: string }> }) 
   const m = r.data?.message;
   return (
     <div>
-      <PageIntro id="family" what={<>This is what the patient&rsquo;s family would see on their phone: where their swap stands and what happens next, in plain words and their own language. It shows only their own case, never another family&rsquo;s details. Every sentence is built from facts in the graph, not invented by AI.</>} />
+      <PageIntro id="family" what={<>What this family sees on their phone: only their own case, in plain words, in English or Hindi.</>} />
       <PageHeader title={`Family view · ${pair}${r.data?.facts?.organ ? ` · ${organOf(r.data.facts.organ).label} program` : ""}`}
-        description="What this family sees on their phone, in their language. Only their own case, nothing about other families."
+
         actions={
           <div className="flex rounded-lg border p-0.5" role="group" aria-label="Language" style={{ borderColor: "var(--line-strong)" }}>
             {[["en", "English"], ["hi", "हिन्दी"]].map(([k, v]) => (

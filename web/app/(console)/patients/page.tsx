@@ -22,7 +22,7 @@ export default function Patients() {
   return (
     <div>
       <PageHeader title="Who is waiting, and what is being done for them?"
-        description="Every family in the shared pool has a patient who needs a transplant and a relative who wants to donate, but can't give to them directly. Two of them are followed week by week; open any family to see who it can swap with." />
+        description="Each family has a patient and a relative who wants to donate but can't give to them directly. Start with one of the two demo patients below." />
 
       <h2 className="text-[1.05rem] font-semibold mb-3" style={{ color: "var(--ink-strong)" }}>Followed week by week</h2>
 
@@ -101,7 +101,7 @@ function AllFamilies() {
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-0 flex-1">
           <h2 id="all-h" className="text-[1.05rem] font-semibold" style={{ color: "var(--ink-strong)" }}>Every family in the pool{r.data ? ` · ${r.data.pairs.length}` : ""}</h2>
-          <p className="text-sm muted">Open one to see its patient and donor broken into parts, why the donor can&rsquo;t give to their own patient, and who they can swap with, hop by hop.</p>
+          <p className="text-sm muted">Open one to see why its donor can&rsquo;t give to their own patient, and who they could swap with.</p>
         </div>
         <input value={q} onChange={(e) => { setQ(e.target.value); setN(24); }} placeholder="Search ID, city or relation" aria-label="Search families"
                className="w-60 rounded-full border px-4 py-2 text-sm outline-none focus:border-[var(--forest-mid)]" style={{ borderColor: "var(--line)", background: "var(--surface)" }} />

@@ -31,13 +31,7 @@ export default function CommitteePage() {
   return (
     <div>
       <h1 className="font-display text-[2.1rem] leading-none mb-4" style={{ color: "var(--ink-strong)" }}>{view ? `${view.label} committee review` : "Committee review"}</h1>
-      <PageIntro id="committee"
-        what={<>In India every swap needs approval from the <Term k="committee">Authorisation Committee</Term>, and each family has to submit its own papers. A swap can only go ahead when <strong>every</strong> family in it is approved, so one missing item holds everyone up. The Delhi High Court set a target of 6–8 weeks (42 days). Each program has its own checklist: {view?.name === "liver" ? <>the liver program asks for donor and recipient evaluation, the donor work-up (CT volumetry), anatomical review and surgical suitability review, plus the CT report and identity papers.</> : view?.name === "kidney" ? <>the kidney program asks for identity papers, the HLA report, blood-group cards, compatibility evidence and a negative lab crossmatch on every link.</> : <>kidney asks for the HLA report and negative lab crossmatches; liver asks for evaluations, the donor work-up, anatomical and surgical suitability review.</>} Checklists are program configuration, not clinical guidance.</>}
-        steps={[
-          <>Swaps that are held up come first. The family that is holding them up is marked in red.</>,
-          <>Open a row to see each family&rsquo;s checklist (its program sets the items) and how many days are left.</>,
-          <>The committee clerk agent reminds hospitals on its own as deadlines get closer; every reminder is in the audit trail.</>,
-        ]} />
+      <PageIntro id="committee" what={<>In India the legal committee must approve every family before a swap can happen. This page shows which paper is holding each swap up.</>} />
 
       {res.error && !res.data ? <ErrorState error={res.error} onRetry={res.reload} what="committee files" /> : !res.data ? <Loading rows={6} /> : (
         <>
