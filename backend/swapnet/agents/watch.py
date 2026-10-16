@@ -21,7 +21,7 @@ MAX_CHASES = 1
 
 PAUSE_KEY = "kindred:watch:paused"
 
-state = {"enabled": ENABLED, "interval_s": INTERVAL, "sweeps": 0, "last_at": None, "last_actions": [], "running": False}
+state = {"enabled": ENABLED, "interval_s": INTERVAL, "sweeps": 0, "last_at": None, "last_actions": [], "running": False, "worlds": {}}
 _stop = threading.Event()
 
 
@@ -72,13 +72,20 @@ def sweep() -> dict:
         return {"skipped": True, **state}
     try:
         state["running"] = True
-        actions = []
-        for fn in (_stale_holds, core.CrossmatchCoordinator().check_overdue, _committee, health.sweep, _rematch):
-            try:
-                actions += fn()
-            except Exception as e:  # one failing duty must not stop the others
-                db.event("Watch", f"{fn.__name__} failed: {type(e).__name__}", "warn")
-        state.update(sweeps=state["sweeps"] + 1, last_at=int(time.time() * 1000), last_actions=actions)
+        from swapnet import worlds
+        # The shared demo and every live private copy: each world's agents keep working on their own.
+        for w in ["", *worlds.active()]:
+            with db.in_world(w):
+                actions = []
+                for fn in (_stale_holds, core.CrossmatchCoordinator().check_overdue, _committee, health.sweep, _rematch):
+                    try:
+                        actions += fn()
+                    except Exception as e:  # one failing duty must not stop the others
+                        db.event("Watch", f"{fn.__name__} failed: {type(e).__name__}", "warn")
+                state["worlds"][w] = actions
+        if state["sweeps"] % 20 == 0:
+            worlds.cleanup()
+        state.update(sweeps=state["sweeps"] + 1, last_at=int(time.time() * 1000), last_actions=state["worlds"].get("", []))
         return {"skipped": False, **state}
     finally:
         state["running"] = False

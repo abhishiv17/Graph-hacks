@@ -2,7 +2,7 @@
 // (lib/demo/snapshot.json, captured by running the demo story against FalkorDB), so every ID, link
 // and reason matches what the live system produced. Actions move through the recorded stages;
 // nothing new is computed and nothing leaves the browser.
-import type { Api, OrganKey } from "./types";
+import type { Api, LoadTest, OrganKey } from "./types";
 
 export type Stage = "loaded" | "chennai" | "broken" | "repaired";
 const ORDER: Stage[] = ["loaded", "chennai", "broken", "repaired"];
@@ -50,8 +50,13 @@ const personasOffline = {
   async persona() { throw new Error(PERSONAS_LIVE); },
   async personaSession() { throw new Error(PERSONAS_LIVE); },
   async personaAdvance() { throw new Error(PERSONAS_LIVE); },
+  async worldCurrent() { return { shared: true, id: null }; },
+  async worldCreate() { throw new Error(PERSONAS_LIVE); },
+  async worldLeave() { throw new Error(PERSONAS_LIVE); },
   async personaReset() { throw new Error(PERSONAS_LIVE); },
   async personaChat() { throw new Error(PERSONAS_LIVE); },
+  async chatHistory() { throw new Error(PERSONAS_LIVE); },
+  async chatAsk() { throw new Error(PERSONAS_LIVE); },
 };
 
 export function createOfflineApi(): Api {
@@ -99,6 +104,9 @@ export function createOfflineApi(): Api {
     async queries() { return (await load()).queries; },
     async sim() { return (await load()).sim; },
     async explore() { throw new NotFound("The family explorer reads the live graph; start the backend to use it"); },
+    async loadtest() {
+      return ((await load() as any).loadtest ?? { ready: false }) as LoadTest;
+    },
     async concurrency() {
       const c = (await load() as any).concurrency;
       if (!c) throw new NotFound("The offline snapshot has no concurrency results; they are in data/generated/concurrency.json");
@@ -134,6 +142,11 @@ export function createOfflineApi(): Api {
       return { declined: s.focus_loop, rematched: [] };
     },
     async agents() { return { enabled: false, interval_s: 0, sweeps: 0, last_at: null, last_actions: [], running: false, offline: true }; },
+    async agentsGraph() {
+      const g = (await load() as any).agents_graph;
+      if (!g) throw new NotFound("The offline snapshot has no agent graph; start the backend to see the agents working");
+      return g;
+    },
     async sweep() { return { enabled: false, interval_s: 0, sweeps: 0, last_at: null, last_actions: [], running: false, offline: true, skipped: true }; },
     async me() { return (await load()).me; },
     async programs() { return (await load()).programs ?? []; },
@@ -155,6 +168,7 @@ export function createOfflineApi(): Api {
       return { enabled: rec.length > 0, offline: true, recorded: rec.map((r) => r.question) } as any;
     },
     async askHistory() { return { questions: [] }; },
+    async askExamples() { return { examples: [] }; },
     ...personasOffline,
     async ask(question) {
       const rec = ((await load()).ask ?? []) as { question: string; result: any }[];

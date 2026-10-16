@@ -98,6 +98,29 @@ export function useResource<T>(key: string | null, fn: (api: Api) => Promise<T>,
     return () => clearInterval(t);
   }, [mode, pollMs, key]);
 
+  // A failed load heals itself: retry with backoff, and again whenever the page is shown (back/forward, a tab coming
+  // back into view). Without this, a screen restored by the back button kept its old error until a full refresh.
+  const fails = useRef(0);
+  useEffect(() => {
+    if (!state.error) { fails.current = 0; return; }
+    if (mode !== "live" || key === null) return;
+    fails.current += 1;
+    const t = setTimeout(() => setTick((n) => n + 1), Math.min(30000, 2000 * 2 ** (fails.current - 1)));
+    return () => clearTimeout(t);
+  }, [state.error, mode, key]);
+  useEffect(() => {
+    if (key === null) return;
+    const again = () => { if (document.visibilityState !== "hidden") setTick((n) => n + 1); };
+    window.addEventListener("popstate", again);
+    window.addEventListener("pageshow", again);
+    document.addEventListener("visibilitychange", again);
+    return () => {
+      window.removeEventListener("popstate", again);
+      window.removeEventListener("pageshow", again);
+      document.removeEventListener("visibilitychange", again);
+    };
+  }, [key]);
+
   return { ...state, loading: state.loading || mode === "checking", reload: () => setTick((n) => n + 1) };
 }
 

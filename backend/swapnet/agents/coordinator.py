@@ -273,6 +273,43 @@ class CaseTools:
         return {"waiting": True, "reason": reason}
 
 
+class McpCaseTools:
+    """The same catalogue, called over MCP on KindRed's own MCP server (agents/mcp_client.py). The server keeps the
+    week's session, so it enforces one action per week whichever client calls; this side keeps the trace."""
+
+    def __init__(self, p: dict, now: int, week: int, by: str):
+        self.p, self.now, self.week, self.by = p, now, week, by
+        self.acted: str | None = None
+        self.found = 0
+        self.trace: list[dict] = []
+
+    def call(self, name: str, args: dict, by: str | None = None) -> dict:
+        from swapnet.agents import mcp_client
+        t0 = time.perf_counter()
+        try:
+            out = mcp_client.client.call(f"patient_{name}", {**args, "persona": self.p["id"], "world": db.world()})
+        except mcp_client.McpError as e:
+            out = {"error": str(e)}
+        week = out.pop("_week", None)
+        if week:
+            self.acted, self.found = week.get("acted"), week.get("found") or 0
+        self.trace.append({"tool": name, "input": args, "result": out, "error": out.get("error"), "by": by or self.by,
+                           "ms": round((time.perf_counter() - t0) * 1000), "via": "mcp"})
+        return out
+
+
+def _tools_over_mcp(p: dict, now: int, week: int):
+    """The model's catalogue as the MCP server lists it, and tools that call it. In-process if MCP isn't reachable."""
+    from swapnet.agents import mcp_client
+    try:
+        catalogue = [t for t in mcp_client.client.catalogue("patient_", hidden=("persona", "world")) if t["name"] != "case_state"]
+        if catalogue:
+            return catalogue, McpCaseTools(p, now, week, by="model"), None
+    except mcp_client.McpError as e:
+        return TOOLS, CaseTools(p, now, week, by="model"), f"The MCP server wasn't reachable ({e}); the same tools ran in-process."
+    return TOOLS, CaseTools(p, now, week, by="model"), "The MCP server listed no patient tools; the same tools ran in-process."
+
+
 # ---------------------------------------------------------------- one week
 
 def _rules(tools: CaseTools, st: dict) -> None:
@@ -283,9 +320,9 @@ def _rules(tools: CaseTools, st: dict) -> None:
             if not tools.call("find_swaps", {"max_size": 2}, by="rules").get("found"):
                 tools.call("find_swaps", {"max_size": 3}, by="rules")
         if tools.found:
-            tools.call("form_swap", {}, by="rules")
+            tools.call("form_swap", {"reason": "The rules' step for this week: a search found a swap."}, by="rules")
     elif s and d in WRITES:
-        tools.call(d, {"loop_id": s["loop_id"]}, by="rules")
+        tools.call(d, {"loop_id": s["loop_id"], "reason": f"The rules' step for this week: {st['due']}."}, by="rules")
 
 
 def _due_tool(st: dict) -> str:
@@ -296,12 +333,12 @@ def run_week(p: dict, now: int, week: int, trigger: str = "weekly review") -> di
     """Let the model choose this week's step for the patient; fall back to the rules when it can't."""
     read: list[dict] = []
     st = state(p, now, read)
-    tools = CaseTools(p, now, week, by="model")
+    catalogue, tools, mcp_note = _tools_over_mcp(p, now, week)
     reason, model, note = "", None, None
     status = ask.status()
     if status["enabled"]:
         try:
-            llm = ask.default_llm(SYSTEM, TOOLS)
+            llm = ask.default_llm(SYSTEM, catalogue)
             messages = llm.start([], f"Trigger: {trigger}. State from the graph: {json.dumps(st, separators=(',', ':'))}")
             for _ in range(MAX_TURNS):
                 turn = llm.turn(messages)
@@ -342,6 +379,8 @@ def run_week(p: dict, now: int, week: int, trigger: str = "weekly review") -> di
     if stray:
         note = (note + " " if note else "") + f"The model's reason named {', '.join(stray)}, which this week's result doesn't show, so it was replaced by the result."
         reason = ""
+    if mcp_note:
+        note = f"{note} {mcp_note}" if note else mcp_note
     text = (reason or summary) if not note else f"{summary} {note}"
     personas.remember_decision(p["id"], at=now, week=week, text=f"{NAME}: {text}", trace=tools.trace, model=model,
                                reason=reason, safety_net=note, due=st["due"], action=did["tool"] if did else "wait", read=read)
@@ -349,7 +388,7 @@ def run_week(p: dict, now: int, week: int, trigger: str = "weekly review") -> di
                 pair_id=p["pair_id"], read=read)
     db.event(NAME, f"{p['pair_id']} ({p['name']}): {summary}", "plan" if did else "info")
     return {"action": did["tool"] if did else "wait", "summary": summary, "reason": reason, "model": model,
-            "safety_net": note, "trace": tools.trace, "read": read}
+            "safety_net": note, "trace": tools.trace, "read": read, "via": "mcp" if isinstance(tools, McpCaseTools) else "in-process"}
 
 
 def _summary(tools: CaseTools, did: dict | None) -> str:

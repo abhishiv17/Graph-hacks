@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
+import { setWorld, worldId } from "@/lib/world";
 import { Logo } from "@/components/Logo";
 import KinGuide from "./KinGuide";
 import { DataProvider, useData, useResource } from "@/lib/data/source";
@@ -16,13 +17,12 @@ export const NAV_MAIN = [
   { href: "/patients", label: "Patients" },
   { href: "/swaps", label: "Swaps" },
   { href: "/pool", label: "Live map" },
+  { href: "/agents", label: "Agents" },
   { href: "/ask", label: "Ask KindRed" },
   { href: "/graph", label: "How it works" },
 ];
 export const NAV_MORE = [
   { href: "/committee", label: "Committee review", sub: "Which paper holds each swap up" },
-  { href: "/integrity", label: "Integrity checks", sub: "Data and workflow checks" },
-  { href: "/audit", label: "Audit trail", sub: "Every agent action and human decision" },
   { href: "/impact", label: "Impact", sub: "A simulated year, four policies" },
   { href: "/lab", label: "Scenario replay", sub: "Each program's story, step by step" },
 ];
@@ -89,6 +89,51 @@ function OfflineChip() {
     <button className="hidden sm:inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold" style={{ borderColor: "#ecd9b4", background: "var(--warn-soft)", color: "var(--warn)" }}
             onClick={() => retryLive()} title="The API isn't responding; showing the last recorded state. Click to reconnect.">
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--warn-mark)" }} /> Offline · reconnect
+    </button>
+  );
+}
+
+/** Shared demo or a private copy. Two judges on the shared demo move the same journeys; a private copy is the whole
+ *  demo in this visitor's own FalkorDB graphs, so nothing they do touches anyone else (and the reverse). */
+function WorldChip() {
+  const { mode, api } = useData();
+  const [id, setId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setId(worldId()); }, []);
+  if (mode !== "live") return null;
+  const make = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const w = await api.worldCreate();
+      setWorld(w.id);
+      window.location.reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+  const leave = async () => {
+    if (!confirm("Leave your private copy and go back to the shared demo? Your copy is deleted.")) return;
+    try { await api.worldLeave(); } catch { /* already gone */ }
+    setWorld(null);
+    window.location.reload();
+  };
+  if (id) {
+    return (
+      <span className="hidden sm:inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold"
+            style={{ borderColor: "var(--forest-mid)", background: "var(--sage-pale)", color: "var(--forest)" }}
+            title="Only you see this copy: its own pool, patients and memory, in its own FalkorDB graphs. It expires after 6 hours unused.">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--forest-mid)" }} /> <span className="hidden xl:inline">Your private copy ·</span><span className="xl:hidden">Copy</span> {id}
+        <button className="underline font-normal" onClick={leave}>leave</button>
+      </span>
+    );
+  }
+  return (
+    <button className="hidden sm:inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-[var(--surface-soft)]"
+            style={{ borderColor: "var(--line)", color: "var(--ink)" }} onClick={make} disabled={busy}
+            title={err ?? "Others may be using the shared demo too. Make your own copy so nobody else moves your patients."}>
+      <Icon name="user" size={13} /> {busy ? "Building your copy…" : err ? "Couldn't make a copy" : <><span className="hidden xl:inline">Shared demo · make my own copy</span><span className="xl:hidden">My own copy</span></>}
     </button>
   );
 }
@@ -240,7 +285,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-40 border-b" style={{ background: "rgba(247,246,240,0.92)", backdropFilter: "blur(10px)", borderColor: "var(--line)" }}>
         <div className="mx-auto flex h-16 max-w-[1400px] items-center gap-4 px-4 sm:px-6 lg:px-10">
           <Link href="/" aria-label="KindRed home" className="shrink-0"><Logo size={30} /></Link>
-          <nav aria-label="Workspace" className="hidden lg:flex items-center gap-1 ml-4">
+          <nav aria-label="Workspace" className="hidden xl:flex items-center gap-1 ml-4">
             {NAV_MAIN.map((n) => (
               <Link key={n.href} href={n.href} className="nav-link" data-active={isActive(path, n.href) || undefined} aria-current={isActive(path, n.href) ? "page" : undefined}>{n.label}</Link>
             ))}
@@ -248,9 +293,10 @@ function ShellInner({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <OfflineChip />
+            <WorldChip />
             <Search />
             <NeedsAPerson />
-            <button className="lg:hidden grid h-9 w-9 place-items-center rounded-lg border" style={{ borderColor: "var(--line)" }} onClick={() => setMenu(true)} aria-label="Open navigation" aria-expanded={menu}>
+            <button className="xl:hidden grid h-9 w-9 place-items-center rounded-lg border" style={{ borderColor: "var(--line)" }} onClick={() => setMenu(true)} aria-label="Open navigation" aria-expanded={menu}>
               <Icon name="menu" size={18} />
             </button>
           </div>
@@ -258,7 +304,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
       </header>
 
       {menu && (
-        <div className="lg:hidden fixed inset-0 z-[60]">
+        <div className="xl:hidden fixed inset-0 z-[60]">
           <div className="absolute inset-0" style={{ background: "rgba(16,42,36,0.45)" }} onClick={() => setMenu(false)} />
           <aside className="absolute right-0 top-0 h-full w-72 max-w-[85vw] flex flex-col overflow-y-auto" style={{ background: "var(--surface)" }} role="dialog" aria-modal="true" aria-label="Navigation">
             <div className="flex items-center justify-between px-5 pt-5 pb-4">

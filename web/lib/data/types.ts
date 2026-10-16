@@ -70,6 +70,19 @@ export type IntegrityFinding = { check: string; severity: "error" | "warn" | "in
 export type Integrity = { organ: OrganKey | null; findings: IntegrityFinding[]; counts: Record<string, number>; checks: Record<string, string>; note: string; queries?: Ran[] };
 export type Viewer = { id: string; name: string; role: string; role_label: string; programs: OrganKey[]; authenticated: boolean; note: string; permissions: Record<string, boolean> };
 
+/** The agents as a graph (GET /api/agents/graph): read from FalkorDB's Agent, Decision, Task and Event nodes. */
+export type AgentNode = {
+  id: string; type: "agent" | "graph" | "task"; label: string; does: string;
+  driver?: "model" | "rules" | "person"; decisions?: number; events?: number; open_tasks?: number; members?: string[];
+  last?: { text: string; at: number } | null; active?: boolean; graph?: string;
+  from?: string; to?: string; n?: number; about?: string[]; at?: number;
+};
+export type AgentEdge = { from: string; to: string; kind: "writes" | "reads" | "hands"; n: number; what: string[] };
+export type AgentFeedItem = { at: number; agent: string; node: string | null; text: string; kind: string; via?: string; why?: string };
+export type AgentGraph = {
+  nodes: AgentNode[]; edges: AgentEdge[]; feed: AgentFeedItem[]; now: number;
+  watch: { enabled: boolean; interval_s: number; sweeps: number; last_at: number | null; running: boolean; paused: boolean; last_actions: string[] };
+};
 export type AgentState = { enabled: boolean; interval_s: number; sweeps: number; last_at: number | null; last_actions: string[]; running: boolean; offline?: boolean };
 export type BackendEvent = { seq: number; at: number; agent: string; text: string; kind: string; organ?: OrganKey | "shared" };
 
@@ -79,7 +92,7 @@ export type AskTrace = { tool: string; input: Record<string, unknown>; rows: num
 export type AskResult = {
   answer: string; draft_replaced: boolean; unverified_ids: string[]; verified_ids: string[];
   trace: AskTrace[]; paths: string[][]; nodes: Record<string, { city: string; organ: string; status: string }>;
-  model: string; provider?: string; stop_reason: string | null; ms: number; remembered_as?: string | null;
+  model: string; provider?: string; stop_reason: string | null; ms: number; remembered_as?: string | null; from_memory?: MemoryItem[]; example?: boolean;
   usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number };
 };
 export type AskMemory = { question_id: string; question: string; answer: string; at: number; asked_by: string; about: string[] };
@@ -97,10 +110,10 @@ export type PersonaSummary = {
 type Latency = { n: number; p50_ms: number | null; p95_ms: number | null; max_ms: number | null };
 /** One family as a small graph (GET /api/families/{id}/explore): its parts and the families around it, hop by hop. */
 export type ExploreNodeType = "family" | "patient" | "donor" | "hospital" | "blood" | "antigen" | "antibody" | "liver";
-export type ExploreNode = { id: string; type: ExploreNodeType; label: string; sub: string; hop: number; data: Record<string, any> };
+export type ExploreNode = { id: string; type: ExploreNodeType; label: string; sub: string; hop: number; data: Record<string, any>; why?: string };
 export type ExploreEdge = {
   id: string; from: string; to: string; type: string; label: string; mark: "own" | "loop2" | "loop3" | null;
-  p?: number; reasons?: string[]; mfi?: number; loops?: number[];
+  p?: number; reasons?: string[]; mfi?: number; loops?: number[]; why?: string;
 };
 export type Explore = {
   center: string; organ: string; hops: number; nodes: ExploreNode[]; edges: ExploreEdge[];
@@ -108,6 +121,16 @@ export type Explore = {
   loops: { pairs: string[]; probs: number[]; p_all: number; size: number }[];
   counts: { gives_to: number; receives_from: number; two_way: number; three_way: number; families_shown: number };
   queries: Ran[];
+};
+/** The measured load test through the API (loadtest/run.mjs with Artillery, data/generated/loadtest.json). */
+export type LatencyMs = { p50: number; p95: number; p99: number; max: number; count: number };
+export type LoadTest = {
+  ready: boolean; tool: string; target: string; ran_at: string; machine: { os: string; cpus: number }; phases: string;
+  visitors: number; completed: number; failed: number; requests: number; ok: number; errors: Record<string, number>;
+  seconds: number; rps: number; latency_ms: LatencyMs; endpoints: (LatencyMs & { name: string; errors: number })[];
+  writes: { chat_turns: number; chat_turns_after_timeout?: number; chat_messages: number; patient_visits: number; new_visits: number; families: number };
+  contention: { pressed: number; moved: number; refused: number; week_before: number; week_after: number; latency_ms: LatencyMs };
+  checks: { check: string; expected: number; found: number; ok: boolean }[]; passed: boolean;
 };
 /** The measured concurrency test (backend swapnet/sim/concurrency.py, data/generated/concurrency.json). */
 export type Concurrency = {
@@ -134,7 +157,7 @@ export type Concurrency = {
 export type MemoryRead = {
   memory: string; kind: "episodic" | "semantic" | "procedural" | "shared"; written_by: string; n: number; used: string; detail: string[];
 };
-export type CoordinatorStep = { tool: string; input: Record<string, unknown>; result: any; error: string | null; by: "model" | "rules"; ms: number };
+export type CoordinatorStep = { tool: string; input: Record<string, unknown>; result: any; error: string | null; by: "model" | "rules"; ms: number; via?: "mcp" };
 /** One swap search for a demo patient, at one depth (2 = 2-way only, 3 = also 3-way). */
 export type PersonaSearch = {
   search_id: string; at: number; week: number; depth: 2 | 3; found: number; total: number; by: string;
@@ -146,7 +169,9 @@ export type SwapLink = {
   donor_abo: string; donor_relation: string; patient_abo: string; reasons: string[] | null; p_success: number | null;
   lobe?: string | null; grwr?: number | null; remnant_pct?: number | null; failed_cause?: string | null;
 };
-export type ChatMessage = { message_id: string; role: "user" | "assistant"; text: string; at: number; tools: string[]; model: string | null };
+/** One piece of an answer that came from memory: what, when it was learned, and which agent learned it. */
+export type MemoryItem = { what: string; at: number; by: string };
+export type ChatMessage = { message_id: string; role: "user" | "assistant"; text: string; at: number; tools: string[]; model: string | null; memory?: MemoryItem[] };
 /** The live swap a demo patient is in, and where it stands. */
 export type PersonaCase = {
   loop_id: string; status: string; kind: string; route: string; pairs: string[]; cities: string[];
@@ -190,6 +215,7 @@ export interface Api {
   queries(): Promise<Record<string, string>>;
   sim(): Promise<any>;
   concurrency(): Promise<Concurrency>;
+  loadtest(): Promise<LoadTest>;
   explore(pair: string, hops: number): Promise<Explore>;
   graphOverview(): Promise<GraphOverview>;
   hospital(code: string): Promise<any>;
@@ -201,6 +227,7 @@ export interface Api {
   approve(taskId: string, choice: string): Promise<any>;
   decline(taskId: string, reason: string): Promise<any>;
   agents(): Promise<AgentState>;
+  agentsGraph(): Promise<AgentGraph>;
   sweep(): Promise<AgentState & { skipped: boolean }>;
   // Multi-organ platform
   me(): Promise<Viewer>;
@@ -212,12 +239,18 @@ export interface Api {
   // Ask KindRed (live API only)
   askStatus(): Promise<AskStatus>;
   askHistory(): Promise<{ questions: AskMemory[] }>;
+  askExamples(): Promise<{ examples: { q: string; r: AskResult }[] }>;
   ask(question: string, history: { role: "user" | "assistant"; content: string }[]): Promise<AskResult>;
   // Demo patients (live API only)
   personas(): Promise<PersonaSummary[]>;
   persona(id: string): Promise<PersonaJourney>;
   personaSession(id: string): Promise<{ greeting: string; session_id: string; reused: boolean }>;
-  personaAdvance(id: string): Promise<any>;
+  personaAdvance(id: string, week?: number): Promise<any>;
+  worldCurrent(): Promise<{ shared: boolean; id: string | null; expires_in_s?: number }>;
+  worldCreate(): Promise<{ id: string; expires_in_s: number }>;
+  worldLeave(): Promise<{ deleted: string }>;
   personaReset(id: string): Promise<any>;
   personaChat(id: string, message: string): Promise<{ messages: ChatMessage[]; answer: string }>;
+  chatHistory(kind: "persona" | "family", id: string): Promise<{ messages: ChatMessage[]; about: string }>;
+  chatAsk(kind: "persona" | "family", id: string, message: string): Promise<{ messages: ChatMessage[]; answer: string; about: string }>;
 }

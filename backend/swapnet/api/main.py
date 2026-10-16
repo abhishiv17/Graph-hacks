@@ -3,13 +3,14 @@ named queries that produced it (`queries`), so the UI can show the Cypher."""
 import json
 import re
 import threading
+import time
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from swapnet import access, config, explore, organs, personas, programs, scenario
+from swapnet import access, chat, config, explore, organs, personas, programs, reasoning, scenario, voice, worlds
 from swapnet.access import Viewer
 from contextlib import asynccontextmanager
 
@@ -29,8 +30,28 @@ async def lifespan(_app):
     watch.stop()
 
 
-app = FastAPI(title="KindRed API", description="Synthetic demo data. No real patients.", lifespan=lifespan)
+async def _world(request: Request, x_kindred_world: str | None = Header(default=None)):
+    """Every request runs in the caller's world: the shared demo, or the private copy named in X-KindRed-World.
+    Async, so the world is set in the request's own context and every sync endpoint inherits it."""
+    if not x_kindred_world or (request.url.path == "/api/worlds" and request.method == "POST"):
+        return
+    if not worlds.touch(x_kindred_world):
+        raise HTTPException(410, "Your private demo copy has expired or doesn't exist. Start a new one, or use the shared demo.")
+    db.set_world(x_kindred_world)
+
+
+app = FastAPI(title="KindRed API", description="Synthetic demo data. No real patients.", lifespan=lifespan,
+              dependencies=[Depends(_world)])
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.exception_handler(Exception)
+async def _crashed(request: Request, exc: Exception):
+    """An unexpected error still answers in JSON with the CORS header, so the web app sees a real (retryable) error
+    instead of a blocked response, e.g. a query that ran while Restart demo was rebuilding the graph."""
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"detail": f"the server hit an error ({type(exc).__name__}); try again in a moment"}, status_code=500,
+                        headers={"Access-Control-Allow-Origin": "*"})
 _busy = threading.Lock()
 
 ACTIVE = ["selected", "offered", "testing", "committee", "locked", "broken"]
@@ -144,7 +165,8 @@ def pair_list(organ: str | None = None, v: Viewer = Depends(access.viewer)):
 def family_explore(pair_id: str, hops: int = 1, v: Viewer = Depends(access.viewer)):
     """One family as a small graph: its parts (patient, donor, blood groups, antigens, antibodies), why its own donor
     can't give, and the families around it at 1, 2 or 3 hops, with the swaps that close back to it (Q55-Q57)."""
-    out = explore.family(pair_id.upper(), hops)
+    pid = pair_id.upper()
+    out = _cached(f"explore:{pid}:{hops}", lambda: (lambda g: g and reasoning.annotate(g))(explore.family(pid, hops)))
     if out is None:
         raise HTTPException(404, f"{pair_id} is not in the graph")
     fam = next(n for n in out["nodes"] if n["id"] == f"fam:{out['center']}")
@@ -154,13 +176,74 @@ def family_explore(pair_id: str, hops: int = 1, v: Viewer = Depends(access.viewe
     return out
 
 
+# ---------------------------------------------------------------- the reasoning layer: walkthroughs and voice
+
+def _localise(steps: list[dict], lang: str) -> dict:
+    """Steps in the asked language (translated by Sarvam), each with the text a voice should read."""
+    if lang not in voice.LANGUAGES:
+        raise HTTPException(400, f"unsupported language {lang}; try one of {', '.join(voice.LANGUAGES)}")
+    try:
+        out = [{**s, "text": voice.translate(s["text"], lang), "spoken": voice.translate(reasoning.spoken(s["text"]), lang)}
+               for s in steps]
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"translation failed ({type(e).__name__}); try English")
+    return {"lang": lang, "steps": out, "voice": voice.status()["enabled"], "source": "Every sentence is built from graph data; "
+            "Sarvam only translates and reads it."}
+
+
+@app.get("/api/voice")
+def voice_status():
+    """Whether spoken walkthroughs are available (Sarvam), and in which languages."""
+    return voice.status()
+
+
+class SpeakBody(BaseModel):
+    text: str
+    lang: str = "en-IN"
+
+
+@app.post("/api/voice/speak")
+def voice_speak(body: SpeakBody):
+    """The text read aloud (WAV), by Sarvam. The key never leaves the server."""
+    if not voice.enabled():
+        raise HTTPException(503, "spoken walkthroughs need SARVAM_API_KEY in .env")
+    if not body.text.strip() or len(body.text) > 2500:
+        raise HTTPException(400, "text must be 1-2500 characters")
+    try:
+        audio = voice.speak(body.text, body.lang)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(429 if e.response.status_code == 429 else 502, f"Sarvam returned {e.response.status_code}")
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"couldn't reach Sarvam ({type(e).__name__})")
+    return Response(content=audio, media_type="audio/wav", headers={"Cache-Control": "max-age=3600"})
+
+
+@app.get("/api/families/{pair_id}/walkthrough")
+def family_walkthrough(pair_id: str, lang: str = "en-IN"):
+    """A spoken, step-by-step explanation of one family's graph: who they are, why their own donor can't give, who the
+    graph tried and why each failed, the 2-way and 3-way swaps found, and what the agents chose."""
+    steps = reasoning.family_walkthrough(pair_id.upper())
+    if steps is None:
+        raise HTTPException(404, f"{pair_id} is not in the graph")
+    return _localise(steps, lang)
+
+
+@app.get("/api/swaps/{loop_id}/walkthrough")
+def swap_walkthrough(loop_id: str, lang: str = "en-IN"):
+    """A spoken, step-by-step explanation of one swap: each donation and why it works, any failure, the backup, the
+    committee, and the overall chance."""
+    return _localise(reasoning.swap_walkthrough(loop_detail(loop_id)), lang)
+
+
 @app.get("/api/exchanges")
 def exchange_list(organ: str | None = None, v: Viewer = Depends(access.viewer)):
     """Loops (exchanges) in one program, or every program the viewer can see."""
     organ = _organ(organ)
     if organ:
         _program_visible(v, organ)
-    return [l for l in _loops() if (organ is None or l["organ"] == organ)
+    return [l for l in _cached("loops", _loops) if (organ is None or l["organ"] == organ)
             and all(v.sees(p["code"], l["organ"]) for p in l["pairs"])]
 
 
@@ -237,8 +320,29 @@ def _tag_events(rows: list[dict]) -> list[dict]:
     return rows
 
 
+_cache: dict[tuple, tuple[int, float, object]] = {}
+CACHE_S = 2.0
+
+
+def _cached(name: str, fn):
+    """A whole-pool read, shared by everyone looking at the same world until the exchange graph is written to (or
+    CACHE_S passes, for writes made by another process). Under load, many visitors polling the pool then cost one
+    traversal instead of one each."""
+    key, stamp = (db.world(), name), db.writes()
+    hit = _cache.get(key)
+    if hit and hit[0] == stamp and time.monotonic() - hit[1] < CACHE_S:
+        return hit[2]
+    out = fn()
+    _cache[key] = (stamp, time.monotonic(), out)
+    return out
+
+
 @app.get("/api/pool")
 def pool():
+    return _cached("pool", _pool_now)
+
+
+def _pool_now():
     with db.track() as tr:
         tiles = db.run("Q20_pool_summary", {"urgent_meld": organs.get("liver").params()["urgent_meld"]})[0]
         comps = db.run("Q07_components")
@@ -484,6 +588,14 @@ def ask_history(v: Viewer = Depends(access.viewer)):
     return {"questions": rows, "queries": tr.ran}
 
 
+@app.get("/api/ask/examples")
+def ask_examples(v: Viewer = Depends(access.viewer)):
+    """Example conversations for the Ask page: the same tools a model picks, run live on the graph, with a sentence
+    written by code instead of a model (each answer says so)."""
+    from swapnet.agents import examples
+    return {"examples": _cached(f"ask-examples:{v.name}", lambda: examples.build(v))}
+
+
 @app.post("/api/ask")
 def ask(body: AskBody, v: Viewer = Depends(access.viewer)):
     """Ask KindRed: a model (Claude or a local one) answers from the graph through a fixed set of read-only tools."""
@@ -519,8 +631,63 @@ def ask(body: AskBody, v: Viewer = Depends(access.viewer)):
 
 @app.get("/api/agents")
 def agents():
-    """What the background watch has been doing."""
-    return watch.state
+    """What the background watch has been doing, in the caller's world."""
+    return {**{k: v for k, v in watch.state.items() if k != "worlds"}, "last_actions": watch.state["worlds"].get(db.world(), [])}
+
+
+# ---------------------------------------------------------------- private demo copies (worlds)
+
+@app.post("/api/worlds")
+def world_create():
+    """Start a private copy of the whole demo for one visitor: their own pool, patients and memory, in their own
+    FalkorDB graphs. Send its id as X-KindRed-World on every request."""
+    if not _busy.acquire(blocking=False):
+        raise HTTPException(409, "a demo is being loaded right now; try again in a few seconds")
+    try:
+        with core.LOCK:
+            return worlds.create()
+    except worlds.Full as e:
+        raise HTTPException(503, str(e))
+    finally:
+        _busy.release()
+
+
+@app.get("/api/worlds/current")
+def world_current():
+    """Which world this request is in: the shared demo, or a private copy (with how long until it expires)."""
+    w = db.world()
+    return {"shared": True, "id": None} if not w else {"shared": False, **(worlds.info(w) or {"id": w})}
+
+
+@app.get("/api/worlds/current/stats")
+def world_stats():
+    """How many chat messages and page visits each graph of this world holds. The load test (loadtest/) checks these
+    against what it wrote, so a lost or doubled write shows up."""
+    out = {}
+    for g in db.graphs():
+        if g.startswith(("chat_", "mem_")):
+            r = db.raw("MATCH (m:Message) WITH count(m) AS m OPTIONAL MATCH (s:Session) RETURN m, count(s) AS s", graph=g)
+            out[g] = {"messages": r[0]["m"], "sessions": r[0]["s"]} if r else {"messages": 0, "sessions": 0}
+    return {"world": db.world() or None, "graphs": out}
+
+
+@app.delete("/api/worlds/current")
+def world_delete():
+    w = db.world()
+    if not w:
+        raise HTTPException(400, "the shared demo can't be deleted")
+    worlds.delete(w)
+    for k in [k for k in _cache if k[0] == w]:
+        _cache.pop(k, None)
+    return {"deleted": w}
+
+
+@app.get("/api/agents/graph")
+def agents_graph():
+    """The agents as a graph, read from FalkorDB: what drives each, which graphs it reads and writes, the open hand-offs
+    between them, and what they just did (the Agents page)."""
+    from swapnet.agents import network
+    return network.build()
 
 
 @app.post("/api/agents/sweep")
@@ -568,54 +735,105 @@ def persona_session(pid: str):
         return personas.start_session(pid)
 
 
+_moving: dict[tuple[str, str], threading.Lock] = {}
+
+
+def _journey_lock(pid: str) -> threading.Lock:
+    return _moving.setdefault((db.world(), pid), threading.Lock())
+
+
 @app.post("/api/personas/{pid}/advance")
-def persona_advance(pid: str):
+def persona_advance(pid: str, week: int | None = None):
     """One simulated week: new families may join, the agents move the case one step on their own, a new reading
-    arrives, the health watch assesses it and agents pick up their hand-offs. No step waits for a person."""
-    _persona(pid)
-    with core.LOCK, db.track() as tr:
-        try:
-            r = health_agent.advance(pid)
-        except health_agent.EndOfJourney as e:
-            raise HTTPException(409, str(e))
-    return {**r, "queries": tr.ran}
+    arrives, the health watch assesses it and agents pick up their hand-offs. No step waits for a person.
+
+    Two people on the same demo can't move one journey at once: `week` is the week the caller is looking at, and the
+    request is refused if the journey has moved on since (optimistic locking), or while another advance is running."""
+    p = _persona(pid)
+    lock = _journey_lock(pid)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, f"Someone else is moving {p['name']}'s journey right now. Wait a moment, or start your own private copy.")
+    try:
+        if week is not None and personas.clock(pid)["week"] != week:
+            raise HTTPException(409, f"{p['name']}'s journey moved on while you were looking (someone else pressed Next week). "
+                                     "The page now shows the latest week.")
+        with core.LOCK, db.track() as tr:
+            try:
+                r = health_agent.advance(pid)
+            except health_agent.EndOfJourney as e:
+                raise HTTPException(409, str(e))
+        return {**r, "queries": tr.ran}
+    finally:
+        lock.release()
 
 
 class ChatBody(BaseModel):
     message: str
 
 
-@app.get("/api/personas/{pid}/chat")
-def persona_chat_history(pid: str):
-    """The ongoing conversation about this patient, stored in their memory graph, so every browser sees it."""
-    _persona(pid)
-    return {"messages": personas.conversation(pid)}
+def _subject(key: str) -> dict:
+    s = chat.subject(key)
+    if not s:
+        raise HTTPException(404, f"{key} is not in the graph")
+    return s
 
 
-@app.post("/api/personas/{pid}/chat")
-def persona_chat(pid: str, body: ChatBody, v: Viewer = Depends(access.viewer)):
-    """Ask about this patient. Ask KindRed answers from the graph (its tools include the patient's memory), and both
-    turns are stored in the patient's memory graph with the earlier ones as context."""
-    p = _persona(pid)
+def _chat_reply(s: dict, body: ChatBody, v: Viewer) -> dict:
+    """One turn of a chat about one patient: turned away if it names another family, otherwise answered by Ask KindRed
+    from the graph with the earlier turns as context. Both turns are stored in the patient's chat graph."""
     q = body.message.strip()
     if not q:
         raise HTTPException(400, "a message is required")
     if len(q) > 1000:
         raise HTTPException(400, "keep the message under 1000 characters")
-    st = ask_agent.status()
-    if not st["enabled"]:
-        raise HTTPException(503, f"Ask KindRed's model ({st['model']}) isn't available: {st['how']}")
-    history = [{"role": m["role"], "content": m["text"]} for m in personas.conversation(pid)][-6:]
-    framed = (f"This conversation is about demo patient {p['name']} ({p['pair_id']}, {p['organ']} program). "
-              f"Use patient_memory for what the agents know about them.\n\n{q}")
-    try:
-        out = ask_agent.ask(framed, v, history)
-    except httpx.HTTPError as e:
-        raise HTTPException(503, f"couldn't reach {st['model']}: {type(e).__name__}")
+    history = [{"role": m["role"], "content": m["text"]} for m in chat.history(s)][-6:]
+    redirect = chat.off_topic(s, q)
+    if redirect:
+        answer, tools, model, trace, memory = redirect, [], "guard (no model)", [], []
+    else:
+        st = ask_agent.status()
+        if not st["enabled"]:
+            raise HTTPException(503, f"Ask KindRed's model ({st['model']}) isn't available: {st['how']}")
+        try:
+            out = ask_agent.ask(chat.frame(s, q), v, history)
+        except httpx.HTTPError as e:
+            raise HTTPException(503, f"couldn't reach {st['model']}: {type(e).__name__}")
+        answer, tools, model, trace = out["answer"], [t["tool"] for t in out["trace"]], out.get("model"), out["trace"]
+        memory = out.get("from_memory") or []
     with core.LOCK:
-        personas.add_message(pid, "user", q)
-        personas.add_message(pid, "assistant", out["answer"], [t["tool"] for t in out["trace"]], out.get("model"))
-    return {"messages": personas.conversation(pid), "answer": out["answer"], "trace": out["trace"]}
+        personas.add_message(s["key"], "user", q)
+        personas.add_message(s["key"], "assistant", answer, tools, model, memory=memory)
+    return {"messages": personas.conversation(s["key"]), "answer": answer, "trace": trace, "from_memory": memory,
+            "about": s["name"]}
+
+
+@app.get("/api/personas/{pid}/chat")
+def persona_chat_history(pid: str):
+    """The ongoing conversation about this patient, stored in its own graph, so every browser sees it. A new chat
+    starts with a few questions already answered from the graph."""
+    _persona(pid)
+    s = _subject(pid)
+    return {"messages": chat.history(s), "about": s["name"]}
+
+
+@app.post("/api/personas/{pid}/chat")
+def persona_chat(pid: str, body: ChatBody, v: Viewer = Depends(access.viewer)):
+    """Ask about this patient only."""
+    _persona(pid)
+    return _chat_reply(_subject(pid), body, v)
+
+
+@app.get("/api/families/{pair_id}/chat")
+def family_chat_history(pair_id: str):
+    """The conversation about one family (any family in the pool), started from the graph like a patient's."""
+    s = _subject(pair_id)
+    return {"messages": chat.history(s), "about": s["name"]}
+
+
+@app.post("/api/families/{pair_id}/chat")
+def family_chat(pair_id: str, body: ChatBody, v: Viewer = Depends(access.viewer)):
+    """Ask about this family only."""
+    return _chat_reply(_subject(pair_id), body, v)
 
 
 @app.post("/api/personas/{pid}/reset")
@@ -623,8 +841,14 @@ def persona_reset(pid: str):
     """Replay this patient's journey from the six months on file."""
     if not personas.get(pid):
         raise HTTPException(404, f"no demo patient {pid!r}")
-    with core.LOCK:
-        return personas.reset(pid)
+    lock = _journey_lock(pid)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, "Someone else is moving this journey right now; try Replay again in a moment.")
+    try:
+        with core.LOCK:
+            return personas.reset(pid)
+    finally:
+        lock.release()
 
 
 @app.get("/api/family/{pair_id}")
@@ -680,11 +904,20 @@ def concurrency():
     return {"ready": True, **json.loads(p.read_text(encoding="utf-8"))}
 
 
+@app.get("/api/loadtest")
+def loadtest():
+    """The measured load test through the API (loadtest/, Artillery): many visitors reading and writing at once."""
+    p = config.DATA / "generated" / "loadtest.json"
+    if not p.exists():
+        return {"ready": False}
+    return {"ready": True, **json.loads(p.read_text(encoding="utf-8"))}
+
+
 @app.get("/api/graph/overview")
 def graph_overview():
     """What lives in FalkorDB right now, and which named queries have been running against it."""
     graphs = []
-    for g in sorted(db.db().list_graphs()):
+    for g in sorted(db.graphs()):
         if g != config.EXCHANGE and not g.startswith(("hosp_", "mem_", "chat_")):
             continue
         nodes = db.raw("MATCH (n) RETURN labels(n)[0] AS label, count(*) AS n ORDER BY n DESC", graph=g)

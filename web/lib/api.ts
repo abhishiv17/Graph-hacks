@@ -1,4 +1,5 @@
 import type { Api } from "./data/types";
+import { worldExpired, worldHeaders } from "./world";
 export type { Ran } from "./data/types";
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -13,7 +14,8 @@ async function call<T>(path: string, init?: RequestInit, timeoutMs = 20000): Pro
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const r = await fetch(`${API}${path}`, { cache: "no-store", ...init, signal: ctl.signal });
+    const r = await fetch(`${API}${path}`, { cache: "no-store", ...init, headers: { ...(init?.headers as Record<string, string> | undefined), ...worldHeaders() }, signal: ctl.signal });
+    if (r.status === 410) worldExpired();
     if (!r.ok) {
       let detail = await r.text();
       try { detail = JSON.parse(detail).detail ?? detail; } catch { /* plain text */ }
@@ -43,6 +45,7 @@ export function createLiveApi(): Api {
     queries: () => get("/api/queries"),
     sim: () => get("/api/sim"),
     concurrency: () => get("/api/concurrency"),
+    loadtest: () => get("/api/loadtest"),
     explore: (pair, hops) => get(`/api/families/${encodeURIComponent(pair)}/explore?hops=${hops}`),
     graphOverview: () => get("/api/graph/overview"),
     hospital: (code) => get(`/api/hospital/${encodeURIComponent(code)}`),
@@ -54,6 +57,7 @@ export function createLiveApi(): Api {
     approve: (task, choice) => post(`/api/tasks/${encodeURIComponent(task)}/approve`, { choice }),
     decline: (task, reason) => post(`/api/tasks/${encodeURIComponent(task)}/decline`, { reason }),
     agents: () => get("/api/agents"),
+    agentsGraph: () => get("/api/agents/graph"),
     sweep: () => post("/api/agents/sweep"),
     me: () => get("/api/me"),
     programs: () => get("/api/programs"),
@@ -63,12 +67,18 @@ export function createLiveApi(): Api {
     audit: (organ) => get(`/api/audit${organ ? `?organ=${organ}` : ""}`),
     askStatus: () => get("/api/ask/status"),
     askHistory: () => get("/api/ask/history"),
+    askExamples: () => get("/api/ask/examples"),
     ask: (question, history) => post("/api/ask", { question, history }),
     personas: () => get("/api/personas"),
     persona: (id) => get(`/api/personas/${encodeURIComponent(id)}`),
     personaSession: (id) => post(`/api/personas/${encodeURIComponent(id)}/session`),
-    personaAdvance: (id) => post(`/api/personas/${encodeURIComponent(id)}/advance`),
+    personaAdvance: (id, week) => post(`/api/personas/${encodeURIComponent(id)}/advance${week != null ? `?week=${week}` : ""}`),
+    worldCurrent: () => get("/api/worlds/current"),
+    worldCreate: () => call("/api/worlds", { method: "POST" }, 120000),
+    worldLeave: () => call("/api/worlds/current", { method: "DELETE" }),
     personaReset: (id) => post(`/api/personas/${encodeURIComponent(id)}/reset`),
     personaChat: (id, message) => post(`/api/personas/${encodeURIComponent(id)}/chat`, { message }),
+    chatHistory: (kind, id) => get(`/api/${kind === "persona" ? "personas" : "families"}/${encodeURIComponent(id)}/chat`),
+    chatAsk: (kind, id, message) => post(`/api/${kind === "persona" ? "personas" : "families"}/${encodeURIComponent(id)}/chat`, { message }),
   };
 }
