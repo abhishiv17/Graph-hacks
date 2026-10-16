@@ -1,0 +1,16 @@
+# 20 visitors press Next week on the same patient in the same second, all looking at the same week. Exactly one may
+# move the journey; the rest must be refused (409), so the patient never moves twice.
+config:
+  processor: "./processor.cjs"
+  http:
+    timeout: 120
+  phases:
+    - { name: same second, duration: 1, arrivalCount: 20 }
+  plugins:
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+scenarios:
+  - name: Next week
+    beforeRequest: inWorld
+    flow:
+      - post: { url: "/api/personas/{{ $env.PERSONA }}/advance?week={{ $env.WEEK }}", name: "write: next week" }

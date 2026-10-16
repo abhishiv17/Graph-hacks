@@ -21,6 +21,8 @@ The graph finds the swap loops inside each program, a CP-SAT optimiser ranks the
 - **Repair is a local, multi-hop search.** When a test fails, Q11 searches only 2 hops around the released families. Every other loop stays untouched, and the screen says how many.
 - **Memory lives in the graph.** A failed test becomes a `FAILED` edge that is never proposed again, plus a `Failure` node. Every agent step and human approval is a `Decision` with `BASED_ON` edges to the facts it used. Agents hand off through `Offer`, `Crossmatch` and `Task` nodes, so a restart loses nothing. Every agent step also stores what it read from memory first and which agent wrote it ("Read before acting" on each patient's page): the coordinator agent reads the health watch's beliefs and findings and the crossmatch coordinator's failed links; the matching agent reads the failure memory before every search (Q54) and skips those links; the scheduler, clerk and liaison pick up the health watch's tasks.
 - **Demo patients the agents follow over months.** Open **Demo patients** (`/patients`), no sign-up: Sunita (kidney, eGFR falling) and Rajesh (liver, MELD rising) each have six months of synthetic history. Press **Next week** and a new lab result arrives. The **health watch** compares the trend with sourced thresholds and with the stage it *remembers*. Only a more urgent stage triggers its playbook, which it reads from the graph. It then hands one `Task` per step to the scheduler (appointments), the committee clerk and the patient liaison. The case itself is run by a **coordinator agent**: each week a language model (Groq `openai/gpt-oss-120b`) reads the patient's state and memory from the graph and picks the next step from six vetted tools (search 2-way then 3-way, form the swap, run the tests, ask for papers, book surgery, or wait). It never writes Cypher, every tool checks the graph before it acts, every id in its reason is checked against the result, and the rules take over if it fails. No approve button. "Why this swap" shows each donation's stored reasons, the shallow vs deep search shows what a 2-way search missed, and each patient has a chat whose history lives in their memory graph. **See the swap on the live map** jumps to the map with it in focus. Readings stay in the hospital's private graph; each patient's memory (sessions, findings, beliefs that supersede older ones, playbooks) lives in a graph of its own (`mem_sunita`, `mem_rajesh`). See docs/personas.md.
+- **A reasoning layer you can listen to.** Every family graph and swap has **Explain this graph, step by step**: a walkthrough built from graph data (why the family's own donor can't give, who the graph tried and why each failed, the 2-way and 3-way swaps found), highlighting each part as it goes, read aloud by Sarvam in English or 10 Indian languages. Hover over any circle or line for the same plain explanation; pinch or scroll to zoom. See docs/how-it-works.md.
+- **A private copy per visitor, and the coordinator over real MCP.** "Make my own copy" in the top bar gives a visitor the whole demo in their own FalkorDB graphs, so two judges never move the same patient; on the shared demo a journey can't be advanced twice at once. The coordinator agent lists and calls its tools over MCP on KindRed's own MCP server. See docs/how-it-works.md.
 - **One graph per tenant.** Each hospital has its own private graph (`hosp_hyd`, …) holding names, full HLA typing and documents. The shared `exchange` graph holds only what matching needs.
 - **An agent that reasons over the graph, and never writes Cypher.** In **Ask KindRed** (`/ask`), a language model answers coordinators' questions ("What breaks if Bengaluru's P-0211 withdraws?", "Find a new loop for Kolkata: 2-way first, then 3-way") by choosing from 14 read-only graph tools. It runs on **Groq** (hosted `openai/gpt-oss-120b`, fast; set `GROQ_API_KEY`), **Claude** (`ANTHROPIC_API_KEY`), or **Llama 3.1 8B locally through Ollama** (free, no key, no data leaves the machine). Each tool is a named, parameterised query in `backend/queries/`, run through `GRAPH.RO_QUERY` so FalkorDB itself refuses a write. Every id is resolved against the graph before any traversal, so an unknown family gets "not in the graph" instead of a guess. Every answer shows the tool trace (tool, arguments, queries, latency, rows) and the graph paths it rests on, and a validator replaces any draft that names an id no query returned. Verified answers are remembered as `Question` nodes and recalled in later sessions, scoped to the viewer's hospitals and program. The same tools, plus the matching and workflow tools, are served to any MCP client: 35 in all, including the coordinator agent's case tools.
 
@@ -118,10 +120,11 @@ On Windows, `.\scripts\dev.ps1` starts all three in separate windows.
 |---|---|---|
 | Tests (needs FalkorDB; resets the demo graph) | `docker compose exec backend sh -c "pip install -q pytest && pytest -q"` | `pytest -q` |
 | Simulation lab, 20 runs, about 4–5 min | `docker compose run --rm backend python -m swapnet.sim.lab --runs 20` | `python -m swapnet.sim.lab --runs 20` |
-| MCP server (35 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
+| MCP server (37 tools, stdio) | `docker compose exec backend python -m swapnet.mcp.server` | `python -m swapnet.mcp.server` |
 | Concurrency test, about 4 min (scratch graph, never the demo) | `docker compose exec backend python -m swapnet.sim.concurrency` | `python -m swapnet.sim.concurrency` |
+| Load test through the API with Artillery, about 2.5 min (in a private copy, never the shared demo) | `cd loadtest && npm install && npm test` (against the running stack) | the same; `node run.mjs --target <url>` for a deployed API |
 
-The simulation writes `data/generated/sim_results.json` and the concurrency test `data/generated/concurrency.json`. The Simulation and How it works screens read them from the API, so refresh the page after a run.
+The simulation writes `data/generated/sim_results.json`, the concurrency test `data/generated/concurrency.json` and the load test `data/generated/loadtest.json`. The Simulation and How it works screens read them from the API, so refresh the page after a run.
 
 ### Check it works
 
@@ -205,6 +208,21 @@ What this shows and doesn't:
 - **Writes don't measurably slow the matcher.** On a pool of fixed size, two matchers searching every loop take about 0.4–0.9 s with or without 1–16 agents updating families; the difference is within run-to-run noise. What slows the search is the pool's size: a bigger pool has many more 3-way loops, so the search grows steeply with it.
 - One laptop, synthetic data, a few seconds per run. It is a measurement of this prototype, not a capacity claim for a national system.
 
+## Load test through the API (measured by us)
+
+The concurrency test above measures the graph. `loadtest/` (Artillery 2.0.34) measures the whole app the way visitors use it: HTTP, FastAPI, the agents' code and FalkorDB, in a private copy of the demo. Visitors arrive at 2 a second, ramp to 20 a second and stay there for a minute; each browses (the pool, the swaps, a family's graph two hops out, a patient's journey, the agents' shared state), chats about a family, or opens a patient's page. Then the runner counts every chat message and page visit in the copy's graphs and compares it with what was written. Finally 20 people press Next week on the same patient in the same second. One laptop (12 CPUs), the whole stack in Docker Compose. Numbers from `data/generated/loadtest.json`:
+
+| | Result |
+|---|---|
+| Visitors / requests | 1,590 visitors, 5,881 requests in 114 s (51.6 a second at the peak rate), no errors, no timeouts |
+| Latency, all requests | p50 1.1 s, p95 3.7 s, p99 5.0 s (at 20 new visitors a second; the backend is one Python process, so this is near its limit) |
+| Writes | 499 chat turns and 143 page visits; all 1,046 chat messages in the graph exactly once (none lost, none doubled) |
+| 20 × Next week at once | 1 moved the journey (the coordinator agent's week ran), 19 refused in 8 ms (p50), the patient moved exactly one week |
+
+The first run found the limit: the API managed 28 requests a second, p95 was 25.6 s and 575 of 1,590 visitors timed out. Profiling showed most of the time going to parsing FalkorDB's replies in pure Python, and to every visitor re-running the same whole-pool traversals. Two changes fixed it: `hiredis` (the C parser for the Redis protocol), and a cache for the pool, swaps and family-graph reads that any write to the exchange graph clears (and that expires after 2 s, for writes from the MCP server's process). Even then, no write was lost: 135 chat turns whose client had given up were still written exactly once.
+
+What it doesn't show: one machine, one backend process, chat questions answered by the guard rather than a language model (so it measures the graph, not a model's rate limit). It is a measurement of this prototype, not a capacity claim.
+
 ## Ask KindRed
 
 | Ask | What the agent does in the graph |
@@ -215,11 +233,14 @@ What this shows and doesn't:
 | "How many families can P-0154's donor reach within 1 hop, and within 3?" | `reachable_within`: variable-length paths over live links (Q33) |
 | "How is P-0154 connected to P-1088?" | `connection_path`: `shortestPath` (Q34) |
 | "Which families hold the most loops together?" | `bridge_families`: `algo.betweenness` (Q19) |
+| "Which waiting families are hardest to match?" | `match_ease`: `algo.pageRank` over the compatibility links (Q59); a low score means few donors can reach that patient |
 | "What has the graph learned from failed tests around P-0211?" | `failure_memory`: FAILED edges and their tests (Q35) |
 | "What happens if P-9999 withdraws?" | The id resolver (Q36) answers "not in the graph"; nothing else runs |
 | "What do the agents remember about Sunita, P-0901?" | `patient_memory`: her current beliefs with what each replaced, dated findings, open hand-offs (Q42, Q43, Q48) |
 
 Earlier verified answers are stored in the graph (Q37) and recalled with their dates (Q38, Q39).
+
+The Ask page opens with five **example conversations**, answered the moment it loads (`swapnet/agents/examples.py`): the same tools a model picks, run live on the graph, with full tool traces and graph paths. Only the sentence is written by code instead of a model, and each answer says so. They show the depth contrast (reach within 1 donation, then 3; or 2-way then 3-way swaps when the pool has them), PageRank as a tool, what breaks if a family withdraws, an answer from memory with the date each belief was learned, and an id that isn't in the graph.
 
 ## The screens
 
@@ -235,6 +256,7 @@ Earlier verified answers are stored in the graph (Q37) and recalled with their d
 | **Simulation lab** (`/lab`) | Each program's scenario (initial state, failure event, repair strategy, review step), replayed from recorded backend output. Changes nothing. |
 | **Impact** (`/impact`) | The yearly simulation (kidney program only): four policies, 20 runs, with the validation against Saidman 2006. |
 | **How it works** (`/graph`) | What's in FalkorDB right now, every named query with live timings, the MCP tools, and how each Track 1/2 point is met (with honest status). |
+| **Agents** (`/agents`) | The agents working in the background, drawn live from FalkorDB: each agent (language model, rules or person), the graphs it reads and writes, the open hand-off tasks between agents, and what each just did. Agents never call each other, so every line goes through a graph. Each action plays on the graph as the background watch writes it (the agent lights up, a caption says what it did); click any agent for what it read first and who wrote it. |
 | **Audit trail** (`/audit`) | Every agent action and human decision, in order. |
 
 A **demo guide** at the top of every screen shows the five story steps and offers the next one as a button, and every screen opens with a short "what is this" note. Dotted words have a plain-language definition on hover.

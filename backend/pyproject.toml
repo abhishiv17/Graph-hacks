@@ -16,6 +16,7 @@ dependencies = [
   "mcp>=1.2,<2",           # 2.x renamed FastMCP (swapnet/mcp/server.py uses the 1.x API)
   "anthropic>=1.0",
   "httpx>=0.27",
+  "hiredis>=3",            # C parser for the Redis protocol: FalkorDB replies parse several times faster under load
 ]
 
 [project.optional-dependencies]

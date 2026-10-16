@@ -1,0 +1,155 @@
+{
+  "tool": "Artillery 2.0.34",
+  "target": "local (docker compose)",
+  "quick": false,
+  "ran_at": "2026-10-16T06:33:46.858Z",
+  "machine": {
+    "os": "Windows_NT 10.0.26200",
+    "cpus": 12
+  },
+  "phases": "15 s warm-up at 2/s, 30 s ramp 4 → 20/s, 60 s at 20 new visitors/s",
+  "visitors": 1590,
+  "completed": 1590,
+  "failed": 0,
+  "requests": 5881,
+  "ok": 5881,
+  "errors": {},
+  "seconds": 114,
+  "rps": 51.6,
+  "latency_ms": {
+    "p50": 1107.9,
+    "p95": 3678.4,
+    "p99": 4965.3,
+    "max": 6623,
+    "count": 5881
+  },
+  "endpoints": [
+    {
+      "name": "read: agents' shared state",
+      "p50": 713.5,
+      "p95": 1901.1,
+      "p99": 2369,
+      "max": 2632,
+      "count": 948,
+      "errors": 0
+    },
+    {
+      "name": "read: family chat",
+      "p50": 1064.4,
+      "p95": 2369,
+      "p99": 2836.2,
+      "max": 2891,
+      "count": 499,
+      "errors": 0
+    },
+    {
+      "name": "read: family graph (2 hops)",
+      "p50": 1556.5,
+      "p95": 4147.4,
+      "p99": 5065.6,
+      "max": 5634,
+      "count": 948,
+      "errors": 0
+    },
+    {
+      "name": "read: patient journey",
+      "p50": 1085.9,
+      "p95": 2369,
+      "p99": 2780,
+      "max": 2905,
+      "count": 948,
+      "errors": 0
+    },
+    {
+      "name": "read: pool",
+      "p50": 1043.3,
+      "p95": 2322.1,
+      "p99": 2836.2,
+      "max": 3100,
+      "count": 948,
+      "errors": 0
+    },
+    {
+      "name": "read: swaps",
+      "p50": 1224.4,
+      "p95": 3678.4,
+      "p99": 4147.4,
+      "max": 4393,
+      "count": 948,
+      "errors": 0
+    },
+    {
+      "name": "write: chat turn",
+      "p50": 1720.2,
+      "p95": 5711.5,
+      "p99": 6312.2,
+      "max": 6623,
+      "count": 499,
+      "errors": 0
+    },
+    {
+      "name": "write: patient visit",
+      "p50": 1224.4,
+      "p95": 4492.8,
+      "p99": 5487.5,
+      "max": 5763,
+      "count": 143,
+      "errors": 0
+    }
+  ],
+  "writes": {
+    "chat_turns": 499,
+    "chat_turns_after_timeout": 0,
+    "chat_messages": 1046,
+    "patient_visits": 143,
+    "new_visits": 2,
+    "families": 8
+  },
+  "contention": {
+    "pressed": 20,
+    "moved": 1,
+    "refused": 19,
+    "week_before": 0,
+    "week_after": 1,
+    "latency_ms": {
+      "p50": 7.9,
+      "p95": 59.7,
+      "p99": 59.7,
+      "max": 5654,
+      "count": 20
+    }
+  },
+  "checks": [
+    {
+      "check": "chat messages in the graph = 6 starters per opened chat + 2 per chat turn sent (answered, or answered after the client gave up)",
+      "expected": 1046,
+      "found": 1046,
+      "ok": true
+    },
+    {
+      "check": "patient visits in the graph = visits the API reported as new",
+      "expected": 2,
+      "found": 2,
+      "ok": true
+    },
+    {
+      "check": "Next week pressed 20 times at once: exactly one moves the journey",
+      "expected": 1,
+      "found": 1,
+      "ok": true
+    },
+    {
+      "check": "the journey moved exactly one week",
+      "expected": 1,
+      "found": 1,
+      "ok": true
+    },
+    {
+      "check": "everyone else was refused (409)",
+      "expected": 19,
+      "found": 19,
+      "ok": true
+    }
+  ],
+  "passed": true
+}

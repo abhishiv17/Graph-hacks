@@ -1,0 +1,13 @@
+{
+  "name": "kindred-loadtest",
+  "private": true,
+  "type": "module",
+  "description": "Artillery load test for the KindRed API: many visitors reading and writing at once, then a check that no write was lost.",
+  "scripts": {
+    "test": "node run.mjs",
+    "quick": "node run.mjs --quick"
+  },
+  "devDependencies": {
+    "artillery": "2.0.34"
+  }
+}

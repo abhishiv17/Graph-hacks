@@ -1,0 +1,44 @@
+# Many visitors at once against the KindRed API, all in one private copy of the demo (run.mjs makes it).
+# Reads: the pool, the swaps, a family's graph, a patient's journey, the agents' shared state.
+# Writes: chat turns (two Message nodes each, in the family's chat graph) and patient-page visits (a Session node in
+# the patient's memory graph). run.mjs counts those afterwards, so a lost or doubled write fails the run.
+config:
+  processor: "./processor.cjs"
+  http:
+    timeout: 30
+  phases:
+    - { name: warm up, duration: 15, arrivalRate: 2 }
+    - { name: ramp up, duration: 30, arrivalRate: 4, rampTo: 20 }
+    - { name: sustained, duration: 60, arrivalRate: 20 }
+  plugins:
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+  ensure:
+    thresholds:
+      - http.response_time.p95: 3000
+scenarios:
+  - name: Browse
+    weight: 6
+    beforeScenario: pickFamily
+    beforeRequest: inWorld
+    flow:
+      - get: { url: "/api/pool", name: "read: pool" }
+      - get: { url: "/api/exchanges", name: "read: swaps" }
+      - get: { url: "/api/families/{{ pair }}/explore?hops=2", name: "read: family graph (2 hops)" }
+      - get: { url: "/api/personas/sunita", name: "read: patient journey" }
+      - get: { url: "/api/agents", name: "read: agents' shared state" }
+  - name: Chat about a family
+    weight: 3
+    beforeScenario: pickFamily
+    beforeRequest: inWorld
+    flow:
+      - get: { url: "/api/families/{{ pair }}/chat", name: "read: family chat" }
+      - post:
+          url: "/api/families/{{ pair }}/chat"
+          name: "write: chat turn"
+          json: { message: "How does {{ other }} compare?" }
+  - name: Visit a patient page
+    weight: 1
+    beforeRequest: inWorld
+    flow:
+      - post: { url: "/api/personas/sunita/session", name: "write: patient visit", afterResponse: countVisit }
