@@ -90,6 +90,10 @@ TOOLS = [
     _tool("bridge_families", "Waiting families whose withdrawal would break the most possible loops (betweenness "
           "centrality on the compatibility graph), optionally in one program.",
           {"organ": _ORGAN, "limit": {"type": "integer", "minimum": 1, "maximum": 20}}, ["limit"]),
+    _tool("match_ease", "How easy each waiting family is to place in a swap (PageRank on the compatibility graph): "
+          "'easiest' have many donors able to reach their patient, 'hardest' have the fewest and are worth putting "
+          "first. Optionally in one program.",
+          {"organ": _ORGAN, "limit": {"type": "integer", "minimum": 1, "maximum": 20}}, ["limit"]),
     _tool("recall", "Agent memory: earlier answered questions about any of these families or loops, newest first, "
           "with the date each answer was learned.", {"ids": {"type": "array", "items": {"type": "string"}, "maxItems": 10}},
           ["ids"]),
@@ -119,6 +123,8 @@ class ToolBox:
     def __init__(self, viewer: Viewer):
         self.v = viewer
         self.paths: list[list[str]] = []
+        # What the answer read from memory rather than worked out now, with when each piece was learned and by whom.
+        self.memory: list[dict] = []
 
     # ---- guards
 
@@ -240,6 +246,17 @@ class ToolBox:
         out = [x for x in out if self._organ_ok(x["organ"]) and (not organ or x["organ"] == organ)]
         return out[:max(1, min(20, int(limit)))]
 
+    def match_ease(self, limit: int, organ: str | None = None) -> dict:
+        if organ and not self._organ_ok(organ):
+            raise NotInGraph(f"outside {self.v.name}'s access: the {organ} program")
+        rows = [r for r in db.run("Q59_match_ease", {"organ": organ}) if self._organ_ok(r["organ"])]
+        facts = {p["pair_id"]: p for p in programs.pairs(ids=[r["pair_id"] for r in rows])}
+        out = [{"pair_id": r["pair_id"], "organ": r["organ"], "score": round(r["score"], 4),
+                "city": facts.get(r["pair_id"], {}).get("city")} for r in rows]
+        n = max(1, min(20, int(limit)))
+        return {"algorithm": "algo.pageRank over CAN_GIVE_TO", "waiting": len(out), "easiest": out[:n],
+                "hardest": out[::-1][:n] if len(out) > n else []}
+
     def failure_memory(self, pair_id: str) -> list[dict]:
         pid = next(iter(self.resolve([pair_id], "pair")))
         rows = db.run("Q35_failure_memory", {"pair_id": pid})
@@ -250,8 +267,10 @@ class ToolBox:
     def recall(self, ids: list[str]) -> list[dict]:
         ids = [clean_id(i) for i in ids][:10]
         rows = db.run("Q38_recall", {"ids": ids, "limit": 20})
-        return [{k: r[k] for k in ("question_id", "question", "answer", "at", "asked_by")} | {"learned": _date(r["at"])}
-                for r in rows if self.sees_scope(r["scope"])][:5]
+        out = [{k: r[k] for k in ("question_id", "question", "answer", "at", "asked_by")} | {"learned": _date(r["at"])}
+               for r in rows if self.sees_scope(r["scope"])][:5]
+        self.memory += [{"what": f"Earlier answer: {r['question']}", "at": r["at"], "by": "Ask KindRed"} for r in out]
+        return out
 
     def patient_memory(self, pair_id: str) -> dict:
         from swapnet import personas
@@ -264,6 +283,8 @@ class ToolBox:
         facts = db.run("Q42_current_facts", {"persona_id": p["id"]}, graph=mg)
         findings = db.run("Q43_findings", {"persona_id": p["id"], "limit": 5}, graph=mg)
         open_tasks = [h for h in db.run("Q48_pair_handoffs", {"pair_id": pid}) if h["status"] == "open"]
+        self.memory += [{"what": f["text"], "at": f["at"], "by": "Health watch (belief)"} for f in facts if f.get("at")]
+        self.memory += [{"what": f["text"], "at": f["at"], "by": "Health watch (finding)"} for f in findings[:2] if f.get("at")]
         return {"pair_id": pid, "followed": True, "memory_graph": mg,
                 "beliefs": [{"about": f["key"], "now": f["text"], "since": _date(f["at"]), "before": f["was_text"]} for f in facts],
                 "findings": [{"on": _date(f["at"]), "kind": f["kind"], "stage": f["stage"], "text": f["text"]} for f in findings],
@@ -273,6 +294,15 @@ class ToolBox:
         if name not in {t["name"] for t in TOOLS}:
             raise NotInGraph(f"unknown tool {name}")
         return getattr(self, name)(**args)
+
+
+def _dedupe(items: list[dict], n: int = 6) -> list[dict]:
+    seen, out = set(), []
+    for m in sorted(items, key=lambda m: -(m["at"] or 0)):
+        if m["what"] not in seen:
+            seen.add(m["what"])
+            out.append(m)
+    return out[:n]
 
 
 def _date(ms: int | None) -> str | None:
@@ -456,6 +486,9 @@ class OllamaLLM:
 
 GROQ_URL = os.getenv("GROQ_URL", "https://api.groq.com/openai/v1").rstrip("/")
 GROQ_MODEL = os.getenv("KINDRED_GROQ_MODEL", "openai/gpt-oss-120b")
+# Each Groq model has its own rate limit, so when one is busy the call moves to the next (free keys allow only a few
+# thousand tokens a minute per model). Comma-separated; empty turns the fallback off.
+GROQ_FALLBACK = [m.strip() for m in os.getenv("KINDRED_GROQ_FALLBACK", "openai/gpt-oss-20b").split(",") if m.strip()]
 
 
 class GroqLLM:
@@ -477,17 +510,22 @@ class GroqLLM:
                 *history, {"role": "user", "content": question}]
 
     def turn(self, messages: list) -> Turn:
-        body = {"model": self.model, "messages": messages, "tools": self.tools, "tool_choice": "auto", "temperature": 0}
-        for attempt in range(3):
+        # Rate limited: wait briefly if Groq asks for only a moment, otherwise try the next model (its own quota).
+        models = [self.model] + [m for m in GROQ_FALLBACK if m != self.model]
+        for i, model in enumerate(models):
+            body = {"model": model, "messages": messages, "tools": self.tools, "tool_choice": "auto", "temperature": 0}
             r = self.http.post(f"{GROQ_URL}/chat/completions", headers={"Authorization": f"Bearer {self.key}"}, json=body)
-            if r.status_code != 429 or attempt == 2:
+            if r.status_code == 429:
+                try:
+                    wait = float(r.headers.get("retry-after") or 5)
+                except ValueError:
+                    wait = 5
+                if wait <= 4 or i == len(models) - 1:
+                    time.sleep(min(wait, 15))
+                    r = self.http.post(f"{GROQ_URL}/chat/completions", headers={"Authorization": f"Bearer {self.key}"}, json=body)
+            if r.status_code != 429:
                 break
-            # Rate limited (free keys allow a few thousand tokens a minute): wait as long as Groq asks, briefly.
-            try:
-                wait = float(r.headers.get("retry-after") or 5)
-            except ValueError:
-                wait = 5
-            time.sleep(min(wait, 15))
+        self.used = model
         r.raise_for_status()
         body = r.json()
         choice = (body.get("choices") or [{}])[0]
@@ -504,7 +542,7 @@ class GroqLLM:
         stop = "tool_use" if calls else ("max_tokens" if choice.get("finish_reason") == "length" else "end_turn")
         u = body.get("usage") or {}
         usage = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0), "cache_read_input_tokens": 0}
-        return Turn(text, calls, stop, f"groq/{self.model}", usage, msg)
+        return Turn(text, calls, stop, f"groq/{self.used}", usage, msg)
 
     def add_turn(self, messages: list, turn: Turn) -> None:
         m = {"role": "assistant", "content": turn.raw.get("content") or ""}
@@ -621,5 +659,5 @@ def ask(question: str, viewer: Viewer, history: list[dict] | None = None, client
             uniq_paths.append(p)
     return {"answer": answer, "draft_replaced": bool(unverified), "unverified_ids": unverified,
             "verified_ids": [i for i in used if i in seen], "trace": trace, "paths": uniq_paths[:12], "nodes": nodes,
-            "remembered_as": remembered, "provider": llm.name, "model": turn.model if turn else getattr(llm, "model", ""),
+            "from_memory": _dedupe(box.memory), "remembered_as": remembered, "provider": llm.name, "model": turn.model if turn else getattr(llm, "model", ""),
             "stop_reason": stop, "usage": usage, "ms": round((time.perf_counter() - t_start) * 1000)}

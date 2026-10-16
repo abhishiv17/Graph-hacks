@@ -4,6 +4,7 @@ import { Fragment, useRef, useState } from "react";
 import { PageIntro, Term } from "@/components/app/Help";
 import { ErrorState, Tag } from "@/components/app/ui";
 import { Icon } from "@/components/app/icons";
+import FromMemory from "@/components/app/FromMemory";
 import { useProgram } from "@/lib/program";
 import { useData, useResource } from "@/lib/data/source";
 import type { AskMemory, AskResult, AskStatus } from "@/lib/data/types";
@@ -127,6 +128,10 @@ function AnswerCard({ t, local }: { t: Turn; local: boolean }) {
   return (
     <li className="space-y-3">
       <div className="flex justify-end"><p className="max-w-[46rem] rounded-2xl rounded-br-sm px-4 py-2.5 text-[0.95rem]" style={{ background: "var(--forest)", color: "#fff" }}>{t.q}</p></div>
+      {t.r?.example && (
+        <p className="text-xs muted">Example, answered the moment this page opened: the same tools the model picks, run live on the graph. The sentence is
+          written from their results by code, not by a model.</p>
+      )}
       {t.error && <ErrorState error={new Error(t.error)} what="that question" />}
       {!t.r && !t.error && (
         <div className="panel p-4 text-sm muted flex items-center gap-2" role="status"><span className="h-2 w-2 rounded-full animate-pulse" style={{ background: "var(--forest-mid)" }} />Choosing tools and walking the graph…{local && " A local model on this machine usually takes about a minute."}</div>
@@ -134,6 +139,7 @@ function AnswerCard({ t, local }: { t: Turn; local: boolean }) {
       {t.r && (
         <div className="panel p-5 space-y-4">
           <Answer text={t.r.answer} />
+          <FromMemory items={t.r.from_memory} />
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {t.r.draft_replaced
               ? <Tag tone="warn" title="The model's draft named ids the graph never returned, so only the query results are shown">Draft replaced: {t.r.unverified_ids.join(", ")} not returned by the graph</Tag>
@@ -153,6 +159,7 @@ export default function AskPage() {
   const { view } = useProgram();
   const status = useResource<AskStatus>("askStatus", (a) => a.askStatus());
   const memory = useResource<{ questions: AskMemory[] }>("askHistory", (a) => a.askHistory());
+  const seeded = useResource<{ examples: { q: string; r: AskResult }[] }>("askExamples", (a) => a.askExamples());
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
@@ -189,13 +196,7 @@ export default function AskPage() {
           ? <>Answering with <strong>{status.data.model}</strong>{status.data.provider === "ollama" ? " running on this machine through Ollama (free, no data leaves the laptop)" : ""}. The tools, checks and memory are the same whichever model answers.</>
           : status.loading ? "Checking which model is available…" : "No model is available right now (see below)."}
       </p>
-      <PageIntro id="ask"
-        what={<><strong>A coordinator&rsquo;s assistant for questions a table can&rsquo;t answer.</strong> &ldquo;What breaks if this family withdraws?&rdquo;, &ldquo;who else could this donor give to, within 3 hops?&rdquo;, &ldquo;why was this <Term k="loop">swap</Term> put together?&rdquo; An AI agent answers by walking the graph with a fixed set of read-only tools. It never writes a query, and every family or swap it names is checked against the graph, so it says &ldquo;not in the graph&rdquo; rather than guess.</>}
-        steps={[
-          <>Pick an example or type a question.</>,
-          <>Open the tool trace to see which tools it chose and what the graph answered.</>,
-          <>Click a family or swap id to open it.</>,
-        ]} />
+      <PageIntro id="ask" what={<>Ask anything about a family or a swap in plain words, for example &ldquo;what breaks if this family drops out?&rdquo;. The answer comes from the graph, and every family or swap it names is checked.</>} />
 
       {!status.loading && !enabled && (
         <div className="panel p-4 mb-5 flex gap-3 text-sm" role="note">
@@ -224,6 +225,17 @@ export default function AskPage() {
               </li>
             ))}
           </ul>
+        </details>
+      )}
+
+      {(seeded.data?.examples.length ?? 0) > 0 && (
+        <details className="mb-6" open={turns.length === 0}>
+          <summary className="cursor-pointer mb-3 text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>
+            Example conversations · {seeded.data!.examples.length} questions, answered from the graph
+          </summary>
+          <ol className="space-y-6">
+            {seeded.data!.examples.map((x, i) => <AnswerCard key={i} t={x} local={false} />)}
+          </ol>
         </details>
       )}
 

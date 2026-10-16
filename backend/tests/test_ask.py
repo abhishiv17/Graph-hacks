@@ -253,3 +253,19 @@ def test_groq_provider_runs_the_same_tool_loop(monkeypatch):
     assert out["trace"][0]["tool"] == "explain_loop" and out["provider"] == "groq"
     # The tool result goes back with the call id, as the OpenAI format requires.
     assert any(m.get("role") == "tool" and m.get("tool_call_id") == "call_1" for m in http.bodies[1]["messages"])
+
+
+def test_match_ease_ranks_waiting_families_with_pagerank():
+    out = ask.ToolBox(_viewer()).match_ease(3)
+    assert out["algorithm"].startswith("algo.pageRank") and out["waiting"] > 6
+    easiest, hardest = out["easiest"], out["hardest"]
+    assert len(easiest) == len(hardest) == 3 and easiest[0]["score"] >= easiest[-1]["score"] >= hardest[0]["score"]
+    assert {x["organ"] for x in ask.ToolBox(_viewer()).match_ease(5, "liver")["easiest"]} == {"liver"}
+    assert db.is_read_only("Q59_match_ease")
+
+
+def test_patient_memory_records_when_each_belief_was_learned():
+    from swapnet import personas
+    box = ask.ToolBox(_viewer())
+    box.patient_memory(personas.get("sunita")["pair_id"])
+    assert box.memory and all(m["at"] and m["what"] for m in box.memory)

@@ -62,6 +62,7 @@ Rules for every query: parameterised (no string building), edge aliases always r
 | Q56 | `links_around` | live donation links out of / into a set of families, with chance and reasons: the explorer's hops | Exchange graph | built |
 | Q57 | `loops_through` | every 2-way and 3-way loop through one family over live links, whatever the others' stage | Exchange graph | built |
 | Q49 | `appointments` | pair id → past visits and appointments the scheduler held | Hospital graph | built |
+| Q59 | `match_ease` | `algo.pageRank` over `CAN_GIVE_TO`: how easy each waiting family is to place in a swap (many donors can reach its patient), easiest and hardest to match | Exchange graph; Ask KindRed's `match_ease` tool | built |
 
 Every named query without a write clause runs through `GRAPH.RO_QUERY` (`db.is_read_only`), so FalkorDB refuses a write from it.
 
