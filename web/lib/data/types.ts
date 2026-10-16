@@ -81,7 +81,8 @@ export type AgentEdge = { from: string; to: string; kind: "writes" | "reads" | "
 export type AgentFeedItem = { at: number; agent: string; node: string | null; text: string; kind: string; via?: string; why?: string };
 export type AgentGraph = {
   nodes: AgentNode[]; edges: AgentEdge[]; feed: AgentFeedItem[]; now: number;
-  watch: { enabled: boolean; interval_s: number; sweeps: number; last_at: number | null; running: boolean; paused: boolean; last_actions: string[] };
+  watch: { enabled: boolean; interval_s: number; sweeps: number; last_at: number | null; running: boolean; paused: boolean; last_actions: string[];
+    autoplay_until?: number | null; busy?: boolean };
 };
 export type AgentState = { enabled: boolean; interval_s: number; sweeps: number; last_at: number | null; last_actions: string[]; running: boolean; offline?: boolean };
 export type BackendEvent = { seq: number; at: number; agent: string; text: string; kind: string; organ?: OrganKey | "shared" };
@@ -229,6 +230,8 @@ export interface Api {
   agents(): Promise<AgentState>;
   agentsGraph(): Promise<AgentGraph>;
   sweep(): Promise<AgentState & { skipped: boolean }>;
+  runWeek(): Promise<{ started: boolean }>;
+  autoplay(on: boolean, minutes?: number): Promise<{ autoplay_until: number | null }>;
   // Multi-organ platform
   me(): Promise<Viewer>;
   programs(): Promise<Program[]>;

@@ -52,3 +52,43 @@ def test_examples_are_answered_by_the_real_tools_with_every_id_checked():
     memory = next(r for q, r in by_q.items() if "remember" in q)
     assert memory["from_memory"] and all(m["at"] for m in memory["from_memory"])
     assert c.get("/api/ask/examples").json()["examples"]
+
+
+def test_labs_answer_on_their_own_but_leave_the_story_swaps_for_a_person(monkeypatch):
+    from swapnet.agents import watch
+    from swapnet.graph import db
+    testing = lambda: {r["l"] for r in db.raw("MATCH (l:Loop {status: 'testing'}) RETURN l.loop_id AS l")}
+    story = {r["l"] for r in db.raw("MATCH (p:Pair)-[:IN_LOOP]->(l:Loop {status: 'testing'}) WHERE p.pair_id IN $k "
+                                    "RETURN DISTINCT l.loop_id AS l", {"k": list(watch._story_pairs())})}
+    assert story and testing() - story
+    # Tests younger than the lab's turnaround stay pending.
+    monkeypatch.setattr(watch, "LAB_SECONDS", 3600)
+    assert watch._lab_returns() == []
+    monkeypatch.setattr(watch, "LAB_SECONDS", 0)
+    done = []
+    while out := watch._lab_returns():
+        done += out
+    assert done and all(s.startswith("Lab results back for ") for s in done)
+    assert not any(l in s for l in story for s in done)
+    assert story <= testing()  # S-0076 and L-0034 still wait for Run lab tests
+
+
+def test_search_summary_names_the_search_the_tool_ran():
+    from swapnet.agents.coordinator import _summary
+
+    class T:
+        trace = [{"tool": "find_swaps", "error": None, "input": {"max_size": "2"}, "result": {"two_way": 3, "three_way": None}},
+                 {"tool": "find_swaps", "error": None, "input": {"max_size": 3}, "result": {"two_way": 3, "three_way": 7}},
+                 {"tool": "wait", "error": None, "input": {"reason": "nothing to do"}, "result": {}}]
+    s = _summary(T(), None)
+    assert "2-way search found 3" in s and "3-way search found 7" in s and "None" not in s
+
+
+def test_run_a_week_and_autoplay_from_the_api():
+    from swapnet.agents import watch
+    r = c.post("/api/agents/autoplay", json={"on": True, "minutes": 5}).json()
+    assert r["autoplay_until"] and c.get("/api/agents/graph").json()["watch"]["autoplay_until"] == r["autoplay_until"]
+    assert c.post("/api/agents/autoplay", json={"on": False}).json() == {"autoplay_until": None}
+    # The watch is paused for the test run, so a round is refused rather than racing the tests.
+    assert c.post("/api/agents/run-week").status_code == 409
+    assert not watch.state["busy"]

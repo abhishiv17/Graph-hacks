@@ -393,8 +393,9 @@ def run_week(p: dict, now: int, week: int, trigger: str = "weekly review") -> di
 
 def _summary(tools: CaseTools, did: dict | None) -> str:
     searches = [t for t in tools.trace if t["tool"] == "find_swaps" and not t["error"]]
-    parts = [f"{'2-way' if t['input'].get('max_size') == 2 else '3-way'} search found {t['result'].get('two_way') if t['input'].get('max_size') == 2 else t['result'].get('three_way')}"
-             for t in searches]
+    # Label each search by what the tool ran, not by the model's input (it may send max_size as "2").
+    parts = [f"2-way search found {t['result'].get('two_way')}" if t["result"].get("three_way") is None
+             else f"3-way search found {t['result'].get('three_way')}" for t in searches]
     if did:
         r = did["result"]
         parts.append({"form_swap": f"formed swap {r.get('formed')} ({r.get('route')}) and sent offers",

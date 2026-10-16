@@ -696,6 +696,27 @@ def agents_sweep():
     return watch.sweep()
 
 
+@app.post("/api/agents/run-week")
+def agents_run_week():
+    """Run the agents through one simulated week now: every demo patient moves on a week (a finished journey starts
+    again) and the watch sweeps. It runs in the background; the Agents page plays each action as it lands."""
+    if watch.paused():
+        raise HTTPException(409, "the agents are paused while a test run holds the graph; try again in a few minutes")
+    return {"started": watch.run_week(db.world())}
+
+
+class AutoplayBody(BaseModel):
+    on: bool
+    minutes: float | None = None
+
+
+@app.post("/api/agents/autoplay")
+def agents_autoplay(body: AutoplayBody):
+    """Autoplay for the caller's world: on every sweep the next demo patient moves on a week, so every agent gets work
+    while nobody presses anything. It turns itself off after `minutes` (default 15)."""
+    return watch.autoplay(db.world(), body.on, body.minutes)
+
+
 # ---------------------------------------------------------------- demo patients (docs/personas.md)
 
 def _persona(pid: str) -> dict:
@@ -735,11 +756,7 @@ def persona_session(pid: str):
         return personas.start_session(pid)
 
 
-_moving: dict[tuple[str, str], threading.Lock] = {}
-
-
-def _journey_lock(pid: str) -> threading.Lock:
-    return _moving.setdefault((db.world(), pid), threading.Lock())
+_journey_lock = personas.journey_lock
 
 
 @app.post("/api/personas/{pid}/advance")

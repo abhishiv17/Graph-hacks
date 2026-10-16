@@ -148,6 +148,8 @@ export function createOfflineApi(): Api {
       return g;
     },
     async sweep() { return { enabled: false, interval_s: 0, sweeps: 0, last_at: null, last_actions: [], running: false, offline: true, skipped: true }; },
+    async runWeek() { throw new Error(PERSONAS_LIVE); },
+    async autoplay() { throw new Error(PERSONAS_LIVE); },
     async me() { return (await load()).me; },
     async programs() { return (await load()).programs ?? []; },
     async pairs(organ) {

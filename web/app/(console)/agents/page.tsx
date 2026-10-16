@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { PageIntro } from "@/components/app/Help";
 import { ErrorState, Loading, Tag } from "@/components/app/ui";
 import AgentNetwork, { DRIVER } from "@/components/app/AgentNetwork";
-import { useResource } from "@/lib/data/source";
+import { useAction, useResource } from "@/lib/data/source";
 import type { AgentEdge, AgentFeedItem, AgentGraph, AgentNode } from "@/lib/data/types";
 
 const ID = /\b([PSL]-\d{4})\b/g;
@@ -133,6 +133,7 @@ function usePlayback(g?: AgentGraph) {
 
 export default function AgentsPage() {
   const r = useResource<AgentGraph>("agents-graph", (a) => a.agentsGraph(), 4000);
+  const act = useAction();
   const [sel, setSel] = useState<string | null>(null);
   const now = useNow();
   const g = r.data;
@@ -140,6 +141,8 @@ export default function AgentsPage() {
   const byId = g ? Object.fromEntries(g.nodes.map((n) => [n.id, n])) : {};
   const { playing, waiting } = usePlayback(g);
   const next = w?.last_at ? Math.max(0, Math.round((w.last_at + w.interval_s * 1000 - now) / 1000)) : null;
+  const playLeft = w?.autoplay_until ? Math.max(0, Math.ceil((w.autoplay_until - now) / 60000)) : 0;
+  const weekRunning = !!w?.busy || act.busy === "week";
 
   return (
     <div>
@@ -156,7 +159,19 @@ export default function AgentsPage() {
               </span>
             </span>
             {w?.enabled && !w.paused && <span className="muted tnum">a sweep every {w.interval_s} s · last {ago(w.last_at, now)}{next !== null ? ` · next in ${next} s` : ""} · {w.sweeps} sweeps since the server started</span>}
+            <span className="ml-auto flex flex-wrap items-center gap-2">
+              <button type="button" className="btn btn-primary" disabled={weekRunning || !!w?.paused} onClick={() => act.run("week", (a) => a.runWeek())}
+                      title="Sunita and Rajesh each move on a week, so the health watch, the coordinator agent, the scheduler and the liaison all act">
+                {weekRunning ? "The agents are working…" : "Run a week now"}
+              </button>
+              <button type="button" className="btn" disabled={!!act.busy || !!w?.paused} aria-pressed={playLeft > 0}
+                      onClick={() => act.run("autoplay", (a) => a.autoplay(playLeft === 0))}
+                      title="A week passes for one patient on every sweep, so the agents keep working while you watch. Stops on its own.">
+                {playLeft > 0 ? `Stop playing (${playLeft} min left)` : "Play on its own"}
+              </button>
+            </span>
           </div>
+          {act.error && <ErrorState error={new Error(act.error)} what="the agents" />}
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
             <div className="panel p-3">
@@ -177,7 +192,7 @@ export default function AgentsPage() {
                     tests, every swap&rsquo;s committee papers, open hand-off tasks and failed links that need a new swap
                     {w?.last_actions?.length ? ` and acted ${w.last_actions.length} time${w.last_actions.length === 1 ? "" : "s"}` : "; nothing needed doing"}.
                     Next sweep {next !== null ? `in ${next} s` : "due"}; what they do plays here as it happens. The health watch and the coordinator agent act when a
-                    simulated week passes, on <Link className="underline" href="/patients/sunita">Sunita</Link> or <Link className="underline" href="/patients/rajesh">Rajesh</Link>.</span>
+                    simulated week passes: press Run a week now, or Next week on <Link className="underline" href="/patients/sunita">Sunita</Link> or <Link className="underline" href="/patients/rajesh">Rajesh</Link>.</span>
                 )}
               </div>
               <div className="overflow-x-auto"><div className="min-w-[46rem]"><AgentNetwork g={g} selected={sel} onSelect={setSel} flash={playing} /></div></div>
@@ -200,7 +215,7 @@ export default function AgentsPage() {
               <p className="text-xs muted">Newest first, from the graph&rsquo;s Event nodes and the patients&rsquo; memory graphs. To see the health watch and the coordinator
                 agent act, press Next week on <Link className="underline" href="/patients/sunita">Sunita</Link> or <Link className="underline" href="/patients/rajesh">Rajesh</Link>.</p>
             </div>
-            {g.feed.length === 0 ? <p className="px-4 py-4 text-sm muted">Nothing yet. Press Run the agents now.</p> : (
+            {g.feed.length === 0 ? <p className="px-4 py-4 text-sm muted">Nothing yet. Press Run a week now.</p> : (
               <ol className="divide-y" style={{ borderColor: "var(--line)" }}>
                 {g.feed.map((f, i) => {
                   const n = f.node ? byId[f.node] : undefined;

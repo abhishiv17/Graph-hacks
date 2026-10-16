@@ -10,6 +10,7 @@ Where each part lives, all in FalkorDB:
 The persona clock is simulated: week 0 is when the demo was loaded, and "Next week" moves it on seven days.
 """
 import json
+import threading
 import time
 import uuid
 from functools import lru_cache
@@ -43,6 +44,14 @@ def by_pair(pair_id: str) -> dict | None:
 
 def memory_graph(pid: str) -> str:
     return f"mem_{pid}"
+
+
+_moving: dict[tuple[str, str], threading.Lock] = {}
+
+
+def journey_lock(pid: str) -> threading.Lock:
+    """Held while one journey moves (Next week, Replay, or the agents' own autoplay), per world."""
+    return _moving.setdefault((db.world(), pid), threading.Lock())
 
 
 def chat_graph(pid: str) -> str:

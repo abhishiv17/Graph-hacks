@@ -59,6 +59,8 @@ export function createLiveApi(): Api {
     agents: () => get("/api/agents"),
     agentsGraph: () => get("/api/agents/graph"),
     sweep: () => post("/api/agents/sweep"),
+    runWeek: () => post("/api/agents/run-week"),
+    autoplay: (on, minutes) => post("/api/agents/autoplay", { on, minutes }),
     me: () => get("/api/me"),
     programs: () => get("/api/programs"),
     pairs: (organ) => get(`/api/pairs${organ ? `?organ=${organ}` : ""}`),
