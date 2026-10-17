@@ -1,0 +1,32 @@
+# Render blueprint for the KindRed API. FalkorDB runs on FalkorDB Cloud; the web app runs on Vercel.
+# Secrets are marked sync: false, so Render asks for them when the blueprint is applied.
+services:
+  - type: web
+    name: kindred-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: starter  # the free plan sleeps after 15 idle minutes, which stops the agents' background watch
+    healthCheckPath: /api/health
+    envVars:
+      - key: FALKORDB_HOST
+        sync: false
+      - key: FALKORDB_PORT
+        sync: false
+      - key: FALKORDB_USERNAME
+        sync: false
+      - key: FALKORDB_PASSWORD
+        sync: false
+      - key: FALKORDB_TLS
+        value: "0"
+      - key: KINDRED_ASK_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false
+      - key: KINDRED_GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: KINDRED_GROQ_FALLBACK
+        value: openai/gpt-oss-20b
+      - key: SARVAM_API_KEY
+        sync: false

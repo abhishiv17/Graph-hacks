@@ -25,7 +25,7 @@ LOG: deque = deque(maxlen=500)
 def db() -> FalkorDB:
     global _db
     if _db is None:
-        _db = FalkorDB(host=config.FALKORDB_HOST, port=config.FALKORDB_PORT)
+        _db = FalkorDB(**config.falkordb_args())
     return _db
 
 

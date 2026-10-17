@@ -3,7 +3,7 @@ services:
     image: falkordb/falkordb:latest
     ports: ["6379:6379", "3000:3000"]
   backend:
-    build: ./backend
+    build: { context: ., dockerfile: backend/Dockerfile }
     environment:
       FALKORDB_HOST: falkordb
       FALKORDB_PORT: "6379"

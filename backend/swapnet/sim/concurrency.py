@@ -43,7 +43,7 @@ LOOPS = {"ids": None, "organ": "kidney"}
 
 def _graph():
     """A connection of this agent's own, as separate agents would have."""
-    return FalkorDB(host=config.FALKORDB_HOST, port=config.FALKORDB_PORT).select_graph(GRAPH)
+    return FalkorDB(**config.falkordb_args()).select_graph(GRAPH)
 
 
 def _timed(fn, *args) -> tuple[list | None, float, str | None]:

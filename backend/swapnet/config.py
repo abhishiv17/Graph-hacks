@@ -11,6 +11,16 @@ QUERIES = Path(__file__).resolve().parents[1] / "queries"
 
 FALKORDB_HOST = os.getenv("FALKORDB_HOST", "localhost")
 FALKORDB_PORT = int(os.getenv("FALKORDB_PORT", "6379"))
+# A hosted FalkorDB (FalkorDB Cloud) also needs a user and password, and TLS when the instance asks for it.
+FALKORDB_USERNAME = os.getenv("FALKORDB_USERNAME") or None
+FALKORDB_PASSWORD = os.getenv("FALKORDB_PASSWORD") or None
+FALKORDB_TLS = os.getenv("FALKORDB_TLS", "0") == "1"
+
+
+def falkordb_args() -> dict:
+    """How to reach FalkorDB: the same for the API, the MCP server it starts and the concurrency test."""
+    return {"host": FALKORDB_HOST, "port": FALKORDB_PORT, "username": FALKORDB_USERNAME,
+            "password": FALKORDB_PASSWORD, "ssl": FALKORDB_TLS}
 EXCHANGE = "exchange"
 
 

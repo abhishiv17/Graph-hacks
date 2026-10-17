@@ -1,0 +1,9 @@
+# The backend image is built from the repo root; only backend/ and data/ go into it.
+*
+!backend/pyproject.toml
+!backend/swapnet
+!backend/queries
+!backend/tests
+!data
+**/__pycache__
+**/*.egg-info
