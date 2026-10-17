@@ -204,3 +204,11 @@ def test_ask_tool_reads_patient_memory():
     assert box.patient_memory("P-0154")["followed"] is False
     with pytest.raises(ask.NotInGraph):
         box.patient_memory("P-9999")
+
+
+def test_a_decision_answered_as_json_text_shows_only_its_reason():
+    from swapnet.agents.coordinator import _plain_reason
+    assert _plain_reason('{\n "action": "wait",\n "reason": "No swap yet."\n}') == "No swap yet."
+    assert _plain_reason('```json\n{"action": "wait", "reason": "Nothing found."}\n```') == "Nothing found."
+    assert _plain_reason("Waiting for the pool to change.") == "Waiting for the pool to change."
+    assert _plain_reason("{not json") == "{not json"

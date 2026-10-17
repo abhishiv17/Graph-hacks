@@ -329,6 +329,19 @@ def _due_tool(st: dict) -> str:
     return st["due"].split(" ")[0].rstrip(",:")
 
 
+def _plain_reason(text: str) -> str:
+    """Some models answer with their decision as JSON text instead of a tool call: keep only the reason in it."""
+    t = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    if t.startswith("{"):
+        try:
+            d = json.loads(t)
+        except ValueError:
+            return text.strip()
+        if isinstance(d, dict) and isinstance(d.get("reason"), str):
+            return d["reason"].strip()
+    return text.strip()
+
+
 def run_week(p: dict, now: int, week: int, trigger: str = "weekly review") -> dict:
     """Let the model choose this week's step for the patient; fall back to the rules when it can't."""
     read: list[dict] = []
@@ -344,7 +357,7 @@ def run_week(p: dict, now: int, week: int, trigger: str = "weekly review") -> di
                 turn = llm.turn(messages)
                 model = turn.model
                 if turn.stop != "tool_use":
-                    reason = turn.text.strip()
+                    reason = _plain_reason(turn.text)
                     break
                 llm.add_turn(messages, turn)
                 results = []
