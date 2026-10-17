@@ -7,52 +7,8 @@ import { useResource } from "@/lib/data/source";
 import { fmtTime } from "@/lib/data/derive";
 import type { Concurrency, GraphOverview, LoadTest } from "@/lib/data/types";
 
-type Status = "Built" | "Partly" | "Not yet";
 // The same colours as the family explorer's legend, so the model and the explorer read as one system.
 const SCHEMA_TINT: Record<string, string> = { Patient: "#E07A6E", Donor: "#4E8FC4", Hospital: "#7A6FB0", HLAAntigen: "#D99A35", Antibody: "#8E5BB5", Loop: "#2C8A62", Failure: "#D4574B" };
-const RUBRIC: { track: string; items: { point: string; how: string; evidence: string[]; status: Status }[] }[] = [
-  { track: "Track 1 · Agents that act on connected data", items: [
-    { point: "Multi-hop reasoning", status: "Built",
-      how: "Each program builds its links with its own rule. Kidney: the virtual crossmatch walks donor → tissue type ← antibody ← patient (3 hops) before any lab test. Liver: the ABO traversal, then graft size and evaluation statuses on the donor's LiverProfile. A swap loop is a 2- or 3-hop loop of donations inside one program. A repair searches only within 2 hops of the families a failure released. Ask KindRed asks the same question at different depths (2-way then 3-way loops, 1 hop then 3), traces what a withdrawal would break, and finds the shortest chain between two families.",
-      evidence: ["Q02_build_edges_for_pair", "Q21_liver_edges_for_pair", "Q03_virtual_crossmatch", "Q05_three_way_loops", "Q11_local_repair_candidates", "Q32_withdrawal_impact", "Q33_reachable_within", "Q34_connection_path"] },
-    { point: "Graph queries and algorithms as agent tools", status: "Built",
-      how: "FalkorDB's algo.WCC splits the pool into independent parts before matching; algo.betweenness finds bridge families whose withdrawal would break the most loops; algo.pageRank ranks how easy each waiting family is to place in a swap, so the hardest to match can go first; shortestPath links two families; variable-length paths measure multi-hop reach. Each is wrapped as a tool, and every read-only query runs through GRAPH.RO_QUERY, so FalkorDB itself refuses a write from it.",
-      evidence: ["Q07_components", "Q19_bridge_pairs", "Q59_match_ease", "Q04_two_way_loops", "Q34_connection_path", "Q33_reachable_within"] },
-    { point: "Tool selection through MCP", status: "Built",
-      how: "Ask KindRed: a language model (gpt-oss-120b on Groq, Claude, or Llama 3.1 8B running locally through Ollama) picks from 15 read-only graph tools to answer a coordinator's question, and never writes Cypher. Every id is resolved against the graph first (unknown ids get \"not in the graph\"), every answer shows its tool trace and paths, and a check confirms every id in the reply came back from a query. The MCP server exposes the same tools, plus the matching and workflow tools, to any MCP client: 37 in all. The coordinator agent is itself an MCP client: each simulated week it lists its case tools from KindRed's MCP server and calls every one over the protocol, and the server enforces one action per week and a search before any swap is formed.",
-      evidence: ["Q36_resolve_ids", "Q32_withdrawal_impact", "Q33_reachable_within"] },
-    { point: "Actions based on what the graph shows", status: "Built",
-      how: "Agents send offers, request lab tests, record a failure as a FAILED edge, propose a repair, and chase committee papers, each triggered by graph state. For the demo patients, the health watch reads a patient's trend and, when the stage gets worse, hands work out: the matching agent marks the pair urgent and searches 2-way then 3-way swaps around it, the scheduler holds tentative appointments, the clerk chases papers. From there the case runs on its own: tests, committee papers, a booked surgery, the transplant, and a fresh search whenever the pool changes while the patient waits.",
-      evidence: ["Q09_offer_loop", "Q10_record_failure", "Q15_loop_committee_readiness", "Q40_persona_readings", "Q44_playbook", "Q48_pair_handoffs"] },
-    { point: "Explainable results", status: "Built",
-      how: "Every compatibility edge stores its reasons. Every agent decision is a Decision node linked BASED_ON the facts it used and APPROVED_BY a person. Every screen lists the Cypher that produced it. Ask KindRed answers carry the graph paths they rest on, and a draft that names an id no query returned is replaced by the query results.",
-      evidence: ["Q13_explain_loop", "Q14_decision_trail"] },
-  ] },
-  { track: "Track 2 · Agent memory and coordination", items: [
-    { point: "Episodic memory", status: "Built",
-      how: "Offers, lab results, failures and events are timestamped nodes. A failed donation becomes a FAILED edge, so it is never proposed again. Each demo patient's memory graph keeps a Finding for every reading the health watch assessed, linked BASED_ON the readings it used and to the hand-offs it started.",
-      evidence: ["Q10_record_failure", "Q18_events_since", "Q43_findings", "Q45_remember_finding"] },
-    { point: "Semantic memory", status: "Built",
-      how: "Medical rules are graph data: blood-group compatibility edges, antibodies that react with tissue types. Past failures update each lab's success estimate. For each demo patient the agents keep current beliefs (stage, trend, projection, swap options) as Fact nodes; a new belief SUPERSEDES the old one, which is kept with its date.",
-      evidence: ["Q02_build_edges_for_pair", "Q17_failure_priors", "Q42_current_facts", "Q46_update_fact"] },
-    { point: "Procedural memory", status: "Built",
-      how: "Each demo patient's memory graph holds a Playbook per stage with ordered Step nodes (which agent does what, and why). The health watch reads its playbook from the graph before handing work out. Hospital intake policies are still YAML files.",
-      evidence: ["Q44_playbook"] },
-    { point: "Persistent conversation history", status: "Built",
-      how: "Each verified Ask KindRed answer is stored as a Question node linked ABOUT the families and swaps it covers. In a later session the agent recalls it with the date it was learned, and the Ask screen lists earlier answers. Unverified answers are never stored. When an answer rests on memory rather than a fresh traversal, it says so with the date each piece was learned and which agent learned it. Each patient's and family's chat is its own graph (chat_<id>), the same from any browser. Every visit to a demo patient's page is a Session node, and the greeting says what changed since the previous one.",
-      evidence: ["Q37_remember_answer", "Q38_recall", "Q39_recent_questions", "Q47_sessions"] },
-    { point: "Shared state and handoffs between agents", status: "Built",
-      how: "Agents never call each other. They read and write the same graph: Task nodes are assigned to agents, and the next agent picks up from the state it finds. The health watch hands one Task per playbook step to the matching agent, scheduler, committee clerk and liaison; each agent picks up its own open tasks, also from the background watch, so a restart loses nothing. The Agents page draws this live from the graph: every agent, the graphs it reads and writes, and the open Task nodes between them. Every agent step also stores what it read first and who wrote it (\"Read before acting\" on each patient's page): the coordinator reads the health watch's beliefs and the crossmatch coordinator's failed links, and the matching agent reads the failure memory before every search.",
-      evidence: ["Q09_offer_loop", "Q15_loop_committee_readiness", "Q48_pair_handoffs", "Q54_failure_memory_around"] },
-    { point: "High-concurrency reads and writes", status: "Built",
-      how: "Every write to a family checks a version number (optimistic locking), so a stale write is refused and retried instead of overwriting a newer one. Measured below: up to 16 hospital agents publish families at once while the matcher searches the same graph, and up to 16 agents update one family at the same moment. No write is lost with the check; the same work without it loses updates. A second test goes through the whole API with Artillery: many visitors reading and writing at once, then a count in the graph that every write landed exactly once, and 20 people pressing Next week on one patient in the same second, of whom exactly one moves the journey.",
-      evidence: ["Q01_upsert_pair", "Q02_build_edges_for_pair", "Q04_two_way_loops", "Q05_three_way_loops"] },
-    { point: "Separate memory per user or tenant", status: "Built",
-      how: "Each hospital has its own private graph with names, documents and the demo patients' lab readings; only de-identified medical facts are published to the shared exchange graph. Each demo patient has a memory graph of their own (mem_sunita, mem_rajesh), so one person's memory never mixes with another's. Ask KindRed's memory records which hospitals and programs each answer touches, and a user only recalls answers inside their own scope. Each visitor can also start a private copy of the whole demo: its own set of graphs (<copy>__exchange, <copy>__mem_sunita, …) in the same FalkorDB server, so two people never see or move each other's patients.",
-      evidence: ["Q38_recall"] },
-  ] },
-];
-
 const ms = (x: number | null) => (x == null ? "–" : x < 10 ? x.toFixed(1) : Math.round(x).toString());
 
 /** The measured concurrency test: numbers from data/generated/concurrency.json, never typed in by hand. */
@@ -183,11 +139,10 @@ function LoadTestResults() {
 export default function HowItWorks() {
   const ov = useResource<GraphOverview>("graph-overview", (a) => a.graphOverview(), 4000);
   const g = ov.data;
-  const runs = new Map((g?.queries ?? []).map((q) => [q.name, q]));
   return (
     <div>
       <h1 className="font-display text-[2.1rem] leading-none mb-4" style={{ color: "var(--ink-strong)" }}>How it works</h1>
-      <PageIntro id="graph" what={<>What is stored in the FalkorDB graph right now, and how each hackathon track is met.</>} />
+      <PageIntro id="graph" what={<>What is stored in the FalkorDB graph right now: the graph model, the measured load tests and every named query with its timings.</>} />
 
       <div className="space-y-10">
         <Section title="The graph model" description="Shared exchange graph. Each hospital also has its own private graph with names and documents.">
@@ -217,35 +172,6 @@ export default function HowItWorks() {
               </div>
             </div>
           )}
-        </Section>
-
-        <Section title="How KindRed meets the hackathon tracks" description="Honest status for every point. Query names link to the timings below.">
-          <div className="space-y-6">
-            {RUBRIC.map((t) => (
-              <div key={t.track}>
-                <p className="font-semibold mb-2" style={{ color: "var(--ink-strong)" }}>{t.track}</p>
-                <div className="panel divide-y" style={{ borderColor: "var(--line)" }}>
-                  {t.items.map((it) => (
-                    <div key={it.point} className="px-4 py-3 grid gap-2 md:grid-cols-[14rem_1fr_auto] md:items-start">
-                      <p className="font-semibold text-sm" style={{ color: "var(--ink-strong)" }}>{it.point}</p>
-                      <div className="text-sm">
-                        <p>{it.how}</p>
-                        {it.evidence.length > 0 && (
-                          <p className="mt-1.5 flex flex-wrap gap-1.5">
-                            {it.evidence.map((e) => {
-                              const q = runs.get(e);
-                              return <a key={e} href={`#q-${e}`} className="rounded-full border px-2 py-0.5 text-xs hover:underline" style={{ borderColor: "var(--line)", color: "var(--forest)" }}>{e}{q?.runs ? ` · ran ${q.runs}× · p50 ${q.p50_ms} ms` : ""}</a>;
-                            })}
-                          </p>
-                        )}
-                      </div>
-                      <Tag tone={it.status === "Built" ? "ok" : it.status === "Partly" ? "warn" : "neutral"}>{it.status}</Tag>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
         </Section>
 
         <ConcurrencyTest />

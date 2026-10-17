@@ -119,11 +119,11 @@ export default function Hero() {
         <ul className="hero-cta gsap-reveal mt-7 flex flex-wrap justify-center gap-3" aria-label="Programs on the platform">
           {[["Kidney", "#2C5A4B", "#DCE9DE"], ["Liver", "#9A6A2C", "#F3E6D2"]].map(([k, c, bg]) => (
             <li key={k}>
-              <a href="#programs" className="inline-flex items-center gap-2.5 rounded-full px-4 py-2 text-left" style={{ background: bg }}>
+              <span className="inline-flex items-center gap-2.5 rounded-full px-4 py-2 text-left" style={{ background: bg }}>
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: c }} aria-hidden="true" />
                 <span className="text-sm font-extrabold uppercase tracking-[0.12em]" style={{ color: c }}>{k}</span>
                 <span className="text-sm font-semibold" style={{ color: "#34433D" }}>Paired donation</span>
-              </a>
+              </span>
             </li>
           ))}
         </ul>

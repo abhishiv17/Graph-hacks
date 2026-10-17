@@ -173,9 +173,6 @@ export function Tracks() {
             </li>
           ))}
         </ul>
-        <p className="mt-8">
-          <Link href="/graph" className="k-link font-bold" style={{ color: INK }}>For judges: the graph model, every query and how KindRed meets Track 1 and Track 2 →</Link>
-        </p>
       </div>
     </section>
   );

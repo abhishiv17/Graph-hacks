@@ -63,7 +63,7 @@ const HELP: [RegExp, Help][] = [
   [/^\/graph/, {
     title: "How it works",
     say: "What FalkorDB does in KindRed: the graph model, every named query with its live timing, the tools agents can call, and the measured concurrency test.",
-    tips: ["The Track 1 and Track 2 table links each point to the query that proves it."],
+    tips: ["Click any query in the table to read its Cypher; the timings are from this running server."],
   }],
   [/^\/committee/, { title: "Committee review", say: "Every swap needs the hospital committees' approval. This shows which family's papers hold each swap up.", tips: [] }],
   [/^\/integrity/, { title: "Integrity checks", say: "Checks on the data and the workflow, like a link without evidence or a repair nobody approved. They flag; a person decides.", tips: [] }],
