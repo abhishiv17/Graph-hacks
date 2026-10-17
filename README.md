@@ -24,9 +24,16 @@ The graph finds the swap loops inside each program, a CP-SAT optimiser ranks the
 - **A reasoning layer you can listen to.** Every family graph and swap has **Explain this graph, step by step**: a walkthrough built from graph data (why the family's own donor can't give, who the graph tried and why each failed, the 2-way and 3-way swaps found), highlighting each part as it goes, read aloud by Sarvam in English or 10 Indian languages. Hover over any circle or line for the same plain explanation; pinch or scroll to zoom. See docs/how-it-works.md.
 - **A private copy per visitor, and the coordinator over real MCP.** "Make my own copy" in the top bar gives a visitor the whole demo in their own FalkorDB graphs, so two judges never move the same patient; on the shared demo a journey can't be advanced twice at once. The coordinator agent lists and calls its tools over MCP on KindRed's own MCP server. See docs/how-it-works.md.
 - **One graph per tenant.** Each hospital has its own private graph (`hosp_hyd`, …) holding names, full HLA typing and documents. The shared `exchange` graph holds only what matching needs.
-- **An agent that reasons over the graph, and never writes Cypher.** In **Ask KindRed** (`/ask`), a language model answers coordinators' questions ("What breaks if Bengaluru's P-0211 withdraws?", "Find a new loop for Kolkata: 2-way first, then 3-way") by choosing from 14 read-only graph tools. It runs on **Groq** (hosted `openai/gpt-oss-120b`, fast; set `GROQ_API_KEY`), **Claude** (`ANTHROPIC_API_KEY`), or **Llama 3.1 8B locally through Ollama** (free, no key, no data leaves the machine). Each tool is a named, parameterised query in `backend/queries/`, run through `GRAPH.RO_QUERY` so FalkorDB itself refuses a write. Every id is resolved against the graph before any traversal, so an unknown family gets "not in the graph" instead of a guess. Every answer shows the tool trace (tool, arguments, queries, latency, rows) and the graph paths it rests on, and a validator replaces any draft that names an id no query returned. Verified answers are remembered as `Question` nodes and recalled in later sessions, scoped to the viewer's hospitals and program. The same tools, plus the matching and workflow tools, are served to any MCP client: 35 in all, including the coordinator agent's case tools.
+- **An agent that reasons over the graph, and never writes Cypher.** In **Ask KindRed** (`/ask`), a language model answers coordinators' questions ("What breaks if Bengaluru's P-0211 withdraws?", "Find a new loop for Kolkata: 2-way first, then 3-way") by choosing from 15 read-only graph tools. It runs on **Groq** (hosted `openai/gpt-oss-120b`, fast; set `GROQ_API_KEY`), **Claude** (`ANTHROPIC_API_KEY`), or **Llama 3.1 8B locally through Ollama** (free, no key, no data leaves the machine). Each tool is a named, parameterised query in `backend/queries/`, run through `GRAPH.RO_QUERY` so FalkorDB itself refuses a write. Every id is resolved against the graph before any traversal, so an unknown family gets "not in the graph" instead of a guess. Every answer shows the tool trace (tool, arguments, queries, latency, rows) and the graph paths it rests on, and a validator replaces any draft that names an id no query returned. Verified answers are remembered as `Question` nodes and recalled in later sessions, scoped to the viewer's hospitals and program. The same tools, plus the matching and workflow tools, are served to any MCP client: 37 in all, including the coordinator agent's case tools.
 
 Programs never mix: each edge query matches only its own organ, every loop query requires one organ per loop, and an organ's rule refuses another organ's pair (`OrganMismatch`). Thresholds the project has a published source for (GRWR ≥ 0.8%, donor keeps ≥ 30%, MFI 2000) are program configuration; checks without an authoritative number are statuses (ELIGIBLE, REVIEW_REQUIRED, UNKNOWN, INELIGIBLE).
+
+## Tracks entered: 1 and 2
+
+| Track | Where to look |
+|---|---|
+| **1 · Agents that act on connected data** | The coordinator agent (`swapnet/agents/coordinator.py`) lists and calls its tools over MCP (`swapnet/mcp/server.py`) to search, form swaps, run tests, ask for papers and book surgery, while graph-side checks constrain each action. Graph work: 2- and 3-way loop traversal (Q04, Q05), 2-hop local repair (Q11), `algo.WCC` (Q07), `algo.betweenness` (Q19), `algo.pageRank` (Q59), `shortestPath` (Q34). Ask KindRed picks from 15 read-only tools and says "not in the graph" for unknown ids. |
+| **2 · Agent memory and coordination** | Per-patient memory graphs (`mem_sunita`, `mem_rajesh`) hold findings, beliefs that `SUPERSEDES` older ones, playbooks and sessions (`swapnet/agents/recall.py`). Failures are `FAILED` edges, answers are `Question` nodes, and agents hand work over through `Task` nodes with "read before acting" provenance. Optimistic locking with measured concurrency and load tests (`tests/test_concurrency.py`, `loadtest/`, docs/how-it-works.md). A private graph per hospital and per visitor copy. |
 
 ## Run it on your laptop
 
@@ -154,6 +161,13 @@ Replace `<task_id>` with the id from the previous response (PowerShell rejects t
 
 To look at the graph directly, open http://localhost:3000, pick `exchange` and run `MATCH (a:Pair)-[f:FAILED]->(b:Pair) RETURN a, f, b`.
 
+### Deploy it (FalkorDB Cloud, Render, Vercel)
+
+1. **FalkorDB:** create an instance on [FalkorDB Cloud](https://app.falkordb.cloud) and note its host, port, user and password.
+2. **API on Render:** New → Blueprint, pick this repo. `render.yaml` builds `backend/Dockerfile` from the repo root and asks for `FALKORDB_HOST`, `FALKORDB_PORT`, `FALKORDB_USERNAME`, `FALKORDB_PASSWORD`, `GROQ_API_KEY` and (optional) `SARVAM_API_KEY`. Set `FALKORDB_TLS=1` if the instance uses TLS. The free plan sleeps after 15 idle minutes, which also stops the agents' background watch; the blueprint uses Starter.
+3. **Load the demo once:** `curl -X POST https://<your-api>.onrender.com/api/demo/reset` (or press **Restart demo** on `/pool`).
+4. **Web on Vercel:** import the repo, set **Root Directory** to `web`, and add `NEXT_PUBLIC_API_URL=https://<your-api>.onrender.com`. It is read at build time, so redeploy after changing it.
+
 ### Troubleshooting
 
 - **Port already in use**: something else is on 3000, 3001, 6379 or 8000. Stop it, or change the left-hand port in `docker-compose.yml`.
@@ -255,7 +269,7 @@ The Ask page opens with five **example conversations**, answered the moment it l
 | **Family view** (`/case/P-0154`, `/case/P-0451`) | What one family sees on their phone, in English or Hindi, in their program's terms. Only their own case. |
 | **Simulation lab** (`/lab`) | Each program's scenario (initial state, failure event, repair strategy, review step), replayed from recorded backend output. Changes nothing. |
 | **Impact** (`/impact`) | The yearly simulation (kidney program only): four policies, 20 runs, with the validation against Saidman 2006. |
-| **How it works** (`/graph`) | What's in FalkorDB right now, every named query with live timings, the MCP tools, and how each Track 1/2 point is met (with honest status). |
+| **How it works** (`/graph`) | What's in FalkorDB right now, every named query with live timings, the MCP tools, and the measured concurrency and load tests. |
 | **Agents** (`/agents`) | The agents working in the background, drawn live from FalkorDB: each agent (language model, rules or person), the graphs it reads and writes, the open hand-off tasks between agents, and what each just did. Agents never call each other, so every line goes through a graph. Each action plays on the graph as the background watch writes it (the agent lights up, a caption says what it did); click any agent for what it read first and who wrote it. |
 | **Audit trail** (`/audit`) | Every agent action and human decision, in order. |
 
@@ -273,7 +287,7 @@ A **demo guide** at the top of every screen shows the five story steps and offer
 
 ## Layout
 
-- `backend/queries/` – every Cypher query, named Q00–Q49. Each screen shows which ones ran and how long they took.
+- `backend/queries/` – every Cypher query, named Q00–Q59. Each screen shows which ones ran and how long they took.
 - `backend/swapnet` is the Python package (the project's working name was SwapNet).
 - `backend/swapnet/graph` – FalkorDB access, publishing from private hospital graphs to the shared exchange graph, and a log of every query for the How it works screen.
 - `backend/swapnet/agents` – intake, crossmatch coordinator, matching, committee clerk, family messages, and (`health.py`) the health watch and scheduler for the demo patients; `swapnet/personas.py` seeds them and reads their journey; `data/params/personas.yaml` holds who they are, their readings, thresholds with sources, and playbooks.
