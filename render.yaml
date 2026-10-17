@@ -6,7 +6,7 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
-    region: singapore
+    region: virginia
     plan: starter  # the free plan sleeps after 15 idle minutes, which stops the agents' background watch
     healthCheckPath: /api/health
     envVars:
