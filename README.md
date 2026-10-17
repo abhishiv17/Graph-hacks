@@ -343,6 +343,7 @@ We used an AI coding assistant, Claude Code (Anthropic), while building KindRed:
 
 ## Credits
 
-**Team KindRed:** Abhishek M S, Afreen Hossain, Akshay R. Code: https://github.com/abhishiv17/Graph-hacks · Live: https://3o3ntcusu2.execute-api.ap-south-1.amazonaws.com
+**Team KindRed:** Abhishek M Shivanagoudar, Afreen Hossain, Akshay R. 
+Code: https://github.com/abhishiv17/Graph-hacks · Live: https://3o3ntcusu2.execute-api.ap-south-1.amazonaws.com
 
 Built alongside, not instead of, KidneyGrid, the NOTTO portal, ASTRA, IKDRC and ISOT SWAP. KindRed is the coordination and failure-handling layer.
