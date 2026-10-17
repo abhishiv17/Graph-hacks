@@ -2,7 +2,7 @@
 
 A coordination and decision-support platform for living-donor exchanges across transplant programs: **kidney paired donation** and **living donor liver paired donation**, on one FalkorDB graph. Built for Graph Hacks 2026 (Tracks 1 and 2).
 
-**Synthetic demo data only. No real patients. A software prototype, not a clinical tool.**
+**Live demo: https://3o3ntcusu2.execute-api.ap-south-1.amazonaws.com** · Synthetic demo data only. No real patients. A software prototype, not a clinical tool.
 
 The graph finds the swap loops inside each program, a CP-SAT optimiser ranks them, agents send offers and each program's test (a lab crossmatch for kidney, a donor work-up for liver), and when a test fails the graph repairs the loop locally (2 hops around the released families). A person approves every repair. The LLM never allocates anything and never creates a fact.
 
@@ -161,12 +161,15 @@ Replace `<task_id>` with the id from the previous response (PowerShell rejects t
 
 To look at the graph directly, open http://localhost:3000, pick `exchange` and run `MATCH (a:Pair)-[f:FAILED]->(b:Pair) RETURN a, f, b`.
 
-### Deploy it (FalkorDB Cloud, Render, Vercel)
+### Deploy it (AWS)
 
-1. **FalkorDB:** create an instance on [FalkorDB Cloud](https://app.falkordb.cloud) and note its host, port, user and password.
-2. **API on Render:** New → Blueprint, pick this repo. `render.yaml` builds `backend/Dockerfile` from the repo root and asks for `FALKORDB_HOST`, `FALKORDB_PORT`, `FALKORDB_USERNAME`, `FALKORDB_PASSWORD`, `GROQ_API_KEY` and (optional) `SARVAM_API_KEY`. Set `FALKORDB_TLS=1` if the instance uses TLS. The free plan sleeps after 15 idle minutes, which also stops the agents' background watch; the blueprint uses Starter.
-3. **Load the demo once:** `curl -X POST https://<your-api>.onrender.com/api/demo/reset` (or press **Restart demo** on `/pool`).
-4. **Web on Vercel:** import the repo, set **Root Directory** to `web`, and add `NEXT_PUBLIC_API_URL=https://<your-api>.onrender.com`. It is read at build time, so redeploy after changing it.
+The live demo runs on one AWS server in Mumbai (`ap-south-1`): FalkorDB, the API, the web app and Caddy in `deploy/aws/docker-compose.yml`. API Gateway gives it an HTTPS address and reaches the server over a private VPC link, so the server takes no traffic from the internet directly.
+
+1. **Secrets** go in SSM Parameter Store as SecureStrings: `/kindred/GROQ_API_KEY` and, optionally, `/kindred/SARVAM_API_KEY`.
+2. **Server:** an EC2 instance (Amazon Linux 2023, `c7i-flex.large`, 30 GB) with an instance role that can read `/kindred/*` and use Systems Manager, and `deploy/aws/user-data.sh` as its user data. On first boot it installs Docker, clones this repo, writes `.env` from SSM and starts the app.
+3. **HTTPS:** an API Gateway HTTP API whose `ANY /` and `ANY /{proxy+}` routes go through a VPC link to the server's port 80 (registered in Cloud Map).
+4. **Load the demo once:** `curl -X POST https://<api-id>.execute-api.ap-south-1.amazonaws.com/api/demo/reset`.
+5. **Update after a push:** run `bash /opt/kindred/deploy/aws/update.sh` on the server (Systems Manager → Run Command). It pulls, refreshes the secrets and rebuilds what changed.
 
 ### Troubleshooting
 
