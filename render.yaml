@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
     region: virginia
-    plan: starter  # the free plan sleeps after 15 idle minutes, which stops the agents' background watch
+    plan: free  # sleeps after 15 idle minutes; an uptime monitor on /api/health keeps it (and the agents) awake
     healthCheckPath: /api/health
     envVars:
       - key: FALKORDB_HOST
