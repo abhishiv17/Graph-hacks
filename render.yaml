@@ -20,6 +20,11 @@ services:
         sync: false
       - key: FALKORDB_TLS
         value: "0"
+      # FalkorDB Cloud's free tier has 100 MB; the demo is about 13 MB and each private copy as much again.
+      - key: KINDRED_MAX_WORLDS
+        value: "4"
+      - key: KINDRED_WORLD_TTL
+        value: "7200"
       - key: KINDRED_ASK_PROVIDER
         value: groq
       - key: GROQ_API_KEY
