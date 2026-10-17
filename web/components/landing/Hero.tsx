@@ -98,7 +98,10 @@ export default function Hero() {
     mm.add(MQ.reduce, () => {
       gsap.set(q(intro), { autoAlpha: 1 });
       gsap.set([q(".rb-loop")[1], q(".rb-loop")[2]], { opacity: 0 });
+      // Reduced motion shows every .gsap-reveal; only the last caption should be on screen.
+      gsap.set(q(".hero-cap"), { autoAlpha: 0 });
       gsap.set(q(".hero-cap")[3], { autoAlpha: 1 });
+      gsap.set(q(".hero-dot")[3], { width: 28, backgroundColor: "#183B32" });
     });
   }, { scope: root });
 
