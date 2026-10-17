@@ -380,7 +380,8 @@ class MatchingAgent:
             loops = _save(res["chosen"], run_id, "failure-aware" if failure_aware else "failure-blind", res, first)
         db.event(self.name, f"Plan {run_id}: {len(comps)} component(s), {res['candidates']} candidate loops found in "
                             f"the graph, {len(loops)} chosen in {res['solve_ms'] / 1000:.1f} s"
-                            f"{' · optimal' if res['optimal'] else ''}. Expected {res['expected_tx']} of "
+                            f"{' · optimal' if res['optimal'] else ''}"
+                            f"{' (this exact pool was solved to optimal before; the saved plan was reused)' if res.get('cached') else ''}. Expected {res['expected_tx']} of "
                             f"{res['planned_tx']} transplants{self._organ_split(res['by_organ'])}. "
                             f"{recall.line(read[0])}.", "plan")
         decide(self.name, "select_plan", f"Optimiser chose {len(loops)} loops by expected transplants, then priority.",
@@ -411,6 +412,7 @@ class MatchingAgent:
                  for o in names]
         return {"chosen": [c for r in parts for c in r["chosen"]],
                 "optimal": all(r["optimal"] for r in parts),
+                "cached": any(r.get("cached") for r in parts),
                 "solve_ms": sum(r["solve_ms"] for r in parts),
                 "expected_tx": round(sum(r["expected_tx"] for r in parts), 2),
                 "planned_tx": sum(r["planned_tx"] for r in parts),

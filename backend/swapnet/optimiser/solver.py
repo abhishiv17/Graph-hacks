@@ -5,11 +5,25 @@ The graph proposes; this step only chooses. Objectives, in order: expected trans
 some value when the third link fails), then priority for blood group O, highly sensitised
 and previously failed patients. Failure-blind mode counts nominal transplants instead.
 """
+import hashlib
+import json
 import math
+import os
 import time
 from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
+
+from swapnet import config
+
+# Parallel search workers. On a small shared CPU (Render's free plan) 8 workers starve each other; use 1 there.
+WORKERS = int(os.getenv("KINDRED_SOLVER_WORKERS", "8"))
+# Whole-pool plans this solver already proved optimal, keyed by the exact model. The demo pool is generated from a
+# fixed seed, so its plan is the same every time; a slow CPU (Render's free plan) can't prove it inside the time limit,
+# and would ship a worse, different plan. KINDRED_PLAN_CACHE=write records new ones (scripts, never in production).
+PLAN_CACHE = config.DATA / "generated" / "plan_cache.json"
+BIG = 500  # only whole-pool models are cached; small ones (repairs, re-matching) are always solved live
+_cache: dict | None = None
 
 
 @dataclass
@@ -59,6 +73,13 @@ def solve(cands: list[Candidate], bonus: dict[str, float] | None = None, failure
     for c in usable:
         c.expected = expected_transplants(c) if failure_aware else float(len(c.pairs))
         c.bonus = sum(bonus.get(p, 0.0) for p in c.pairs)
+    weight = [int(round(c.expected * 10_000)) + int(round(c.bonus * 100)) for c in usable]
+    key = _key(usable, weight) if len(usable) >= BIG else None
+    known = _plans().get(key) if key else None
+    if known is not None:
+        picked = {tuple(p) for p in known}
+        chosen = [c for c in usable if tuple(c.pairs) in picked]
+        return _result(chosen, True, t0, len(usable), cached=True)
     m = cp_model.CpModel()
     x = [m.NewBoolVar(f"l{i}") for i in range(len(usable))]
     by_pair: dict[str, list] = {}
@@ -68,20 +89,44 @@ def solve(cands: list[Candidate], bonus: dict[str, float] | None = None, failure
     for vs in by_pair.values():
         m.Add(sum(vs) <= 1)
     # Lexicographic by scale: transplants dominate, priority breaks ties.
-    m.Maximize(sum(x[i] * (int(round(c.expected * 10_000)) + int(round(c.bonus * 100))) for i, c in enumerate(usable)))
+    m.Maximize(sum(x[i] * weight[i] for i in range(len(usable))))
     s = cp_model.CpSolver()
     s.parameters.max_time_in_seconds = time_limit
-    s.parameters.num_workers = 8
+    s.parameters.num_workers = WORKERS
     status = s.Solve(m)
     chosen = [c for i, c in enumerate(usable) if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) and s.Value(x[i])]
+    if key and status == cp_model.OPTIMAL and os.getenv("KINDRED_PLAN_CACHE") == "write":
+        _plans()[key] = [list(c.pairs) for c in chosen]
+        PLAN_CACHE.write_text(json.dumps(_plans(), indent=0, sort_keys=True), encoding="utf-8")
+    return _result(chosen, status == cp_model.OPTIMAL, t0, len(usable))
+
+
+def _result(chosen: list[Candidate], optimal: bool, t0: float, n: int, cached: bool = False) -> dict:
     return {
         "chosen": chosen,
-        "optimal": status == cp_model.OPTIMAL,
+        "optimal": optimal,
         "solve_ms": round((time.perf_counter() - t0) * 1000),
         "expected_tx": round(sum(expected_transplants(c) for c in chosen), 2),
         "planned_tx": sum(len(c.pairs) for c in chosen),
-        "candidates": len(usable),
+        "candidates": n,
+        "cached": cached,
     }
+
+
+def _key(usable: list[Candidate], weight: list[int]) -> str:
+    """The model itself: every candidate loop (its pairs, in order) and its objective weight."""
+    rows = sorted([*c.pairs, str(w)] for c, w in zip(usable, weight))
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()[:24]
+
+
+def _plans() -> dict:
+    global _cache
+    if _cache is None:
+        try:
+            _cache = json.loads(PLAN_CACHE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _cache = {}
+    return _cache
 
 
 def rank_repairs(cands: list[Candidate], released: list[str], bonus: dict[str, float] | None = None) -> list[Candidate]:
