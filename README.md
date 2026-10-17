@@ -6,6 +6,26 @@ A coordination and decision-support platform for living-donor exchanges across t
 
 The graph finds the swap loops inside each program, a CP-SAT optimiser ranks them, agents send offers and each program's test (a lab crossmatch for kidney, a donor work-up for liver), and when a test fails the graph repairs the loop locally (2 hops around the released families). A person approves every repair. The LLM never allocates anything and never creates a fact.
 
+## See it working
+
+The same moments in the app (left) and in the FalkorDB graph itself (right), from the live deployment.
+
+| In KindRed | In FalkorDB |
+|---|---|
+| ![A test failed on swap S-0076 and KindRed proposes a repair with a Chennai family, found in 57 ms](docs/images/swap-repair.png) | ![The broken S-0076 loop in the exchange graph, with the FAILED edge that stops that donation being proposed again](docs/images/falkordb-failed-swap.png) |
+| **A swap breaks.** Bengaluru's lab test fails; KindRed searches 2 hops around the break and a person approves the repair. | The failed donation is a `FAILED` edge on the loop's families, so it is never proposed again. |
+| ![The live pool: every hospital and swap on a map of India, including the Kochi to Bengaluru to Mumbai liver swap](docs/images/live-pool.png) | ![Rajesh's 3-way liver loop as three CAN_GIVE_TO edges in FalkorDB](docs/images/falkordb-three-way-loop.png) |
+| **The live pool.** Every swap on the map, including Rajesh's Kochi → Bengaluru → Mumbai liver swap. | That swap is a cycle of three `CAN_GIVE_TO` edges, found by traversal when no 2-way swap exists. |
+| ![Sunita's page: eGFR 19, stage Prepare, and the coordinator agent's decision over MCP](docs/images/patient-sunita.png) | ![Sunita's memory graph: each new belief SUPERSEDES the one it replaced](docs/images/falkordb-patient-memory.png) |
+| **A patient the agents follow.** Her kidney function drops; the coordinator agent picks its tools over MCP and forms a swap. | Her own memory graph (`mem_sunita`): each new belief `SUPERSEDES` the old one, which is kept with its date. |
+
+| | |
+|---|---|
+| ![The KindRed homepage](docs/images/home.png) | ![Ask KindRed: a question answered from the graph, with the paths and tool trace behind it](docs/images/ask.png) |
+| **Home** | **Ask KindRed:** answers from graph tools, with the paths behind them and every id checked |
+| ![The Agents page: every agent, the graphs they share and the Task hand-offs between them, drawn live from FalkorDB](docs/images/agents.png) | ![How it works: the graph model, load tests and every named query with live timings](docs/images/how-it-works.png) |
+| **Agents:** who reads and writes which graph, drawn live from the graph | **How it works:** the graph model and every named query |
+
 ### One platform, two programs
 
 | | Shared core | Kidney program | Liver program |
@@ -290,7 +310,7 @@ A **demo guide** at the top of every screen shows the five story steps and offer
 
 ## Layout
 
-- `backend/queries/` – every Cypher query, named Q00–Q59. Each screen shows which ones ran and how long they took.
+- `backend/queries/` – every Cypher query, named Q00–Q59. [docs/queries.md](docs/queries.md) lists them all with what each does and its full text; each screen shows which ones ran and how long they took.
 - `backend/swapnet` is the Python package (the project's working name was SwapNet).
 - `backend/swapnet/graph` – FalkorDB access, publishing from private hospital graphs to the shared exchange graph, and a log of every query for the How it works screen.
 - `backend/swapnet/agents` – intake, crossmatch coordinator, matching, committee clerk, family messages, and (`health.py`) the health watch and scheduler for the demo patients; `swapnet/personas.py` seeds them and reads their journey; `data/params/personas.yaml` holds who they are, their readings, thresholds with sources, and playbooks.
@@ -303,7 +323,9 @@ A **demo guide** at the top of every screen shows the five story steps and offer
 
 ## Data model (short)
 
-One private graph per hospital (`hosp_HYD`, …) holds names, full HLA typing, relationships and documents. The shared `exchange` graph holds only what matching needs: `Pair`, `Donor`, `Patient`, `HLAAntigen`, `Antibody`, `CAN_GIVE_TO {p_success, reasons}`, `Loop`, `IN_LOOP`, `FAILED`, `Failure`, `Decision`, `Task`, `Event`. Liver donors add a `LiverProfile` (volumes and evaluation statuses). Until a donor's CT volumetry is shared, the exchange sees a volume estimated from height and weight; the CT measurements and clinical notes stay in the hospital graph, and a failed work-up writes the measured volumes to the exchange so that donor is never matched on the estimate again. See docs/schema.md.
+![The graph model of the shared exchange graph](docs/images/how-it-works.png)
+
+One private graph per hospital (`hosp_HYD`, …) holds names, full HLA typing, relationships and documents. The shared `exchange` graph holds only what matching needs: `Pair`, `Donor`, `Patient`, `HLAAntigen`, `Antibody`, `CAN_GIVE_TO {p_success, reasons}`, `Loop`, `IN_LOOP`, `FAILED`, `Failure`, `Decision`, `Task`, `Event`. Liver donors add a `LiverProfile` (volumes and evaluation statuses). Until a donor's CT volumetry is shared, the exchange sees a volume estimated from height and weight; the CT measurements and clinical notes stay in the hospital graph, and a failed work-up writes the measured volumes to the exchange so that donor is never matched on the estimate again. See docs/schema.md, and [docs/queries.md](docs/queries.md) for every Cypher query (59 files: 45 read-only through `GRAPH.RO_QUERY`, 14 that write) and the graph algorithms they use.
 
 ### Program APIs
 
