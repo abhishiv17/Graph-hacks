@@ -1,0 +1,42 @@
+# KindRed on one AWS server: FalkorDB, the API, the web app and Caddy in front of them.
+# CloudFront serves it over HTTPS; Caddy sends /api/* to the API and everything else to the web app.
+# Secrets come from /opt/kindred/.env, written from SSM Parameter Store when the server starts (user-data.sh).
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    restart: unless-stopped
+    volumes: ["falkordb-data:/var/lib/falkordb/data"]
+    # The FalkorDB Browser. The security group opens it to the team's own IP only.
+    ports: ["3000:3000"]
+
+  backend:
+    build: { context: ../.., dockerfile: backend/Dockerfile }
+    restart: unless-stopped
+    env_file: [../../.env]
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      FALKORDB_USERNAME: ""
+      FALKORDB_PASSWORD: ""
+      KINDRED_ASK_PROVIDER: groq
+      KINDRED_GROQ_MODEL: openai/gpt-oss-120b
+      KINDRED_GROQ_FALLBACK: openai/gpt-oss-20b
+    depends_on: [falkordb]
+
+  web:
+    build:
+      context: ../../web
+      # Empty: the web app calls /api on its own address, and Caddy passes it to the API.
+      args: { NEXT_PUBLIC_API_URL: "" }
+    restart: unless-stopped
+    depends_on: [backend]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80"]
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro"]
+    depends_on: [backend, web]
+
+volumes:
+  falkordb-data:
