@@ -82,7 +82,9 @@ export type AgentFeedItem = { at: number; agent: string; node: string | null; te
 export type AgentGraph = {
   nodes: AgentNode[]; edges: AgentEdge[]; feed: AgentFeedItem[]; now: number;
   watch: { enabled: boolean; interval_s: number; sweeps: number; last_at: number | null; running: boolean; paused: boolean; last_actions: string[];
-    autoplay_until?: number | null; busy?: boolean };
+    autoplay_until?: number | null; busy?: boolean;
+    /** What the last sweep looked at, so a quiet sweep still shows its work. */
+    checked?: { holds: number; tests: number; swaps: number; tasks: number; waiting: number } | null };
 };
 export type AgentState = { enabled: boolean; interval_s: number; sweeps: number; last_at: number | null; last_actions: string[]; running: boolean; offline?: boolean };
 export type BackendEvent = { seq: number; at: number; agent: string; text: string; kind: string; organ?: OrganKey | "shared" };

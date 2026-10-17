@@ -28,10 +28,10 @@ AUTOPLAY_MINUTES = float(os.getenv("KINDRED_AUTOPLAY_MINUTES", "15"))
 
 PAUSE_KEY = "kindred:watch:paused"
 
-# worlds: each world's last actions. autoplay: world -> when it turns itself off (ms). busy: world -> when a
+# worlds: each world's last actions. checked: each world's count of what the last sweep looked at. autoplay: world -> when it turns itself off (ms). busy: world -> when a
 # "run a week" round started (ms), while it runs.
 state = {"enabled": ENABLED, "interval_s": INTERVAL, "sweeps": 0, "last_at": None, "last_actions": [], "running": False,
-         "worlds": {}, "autoplay": {}, "busy": {}}
+         "worlds": {}, "checked": {}, "autoplay": {}, "busy": {}}
 _turn: dict[str, int] = {}
 _stop = threading.Event()
 
@@ -106,6 +106,18 @@ def _rematch() -> list[str]:
     return [f"Re-matched into {l['loop_id']}" for l in loops] or [f"Checked {len(ids)} waiting famil{'y' if len(ids) == 1 else 'ies'}"]
 
 
+def _checked() -> dict:
+    """What a sweep looked at, so a quiet sweep still shows its work: the counts each duty above reads."""
+    def n(cypher: str) -> int:
+        rows = db.raw(cypher)
+        return rows[0]["n"] if rows else 0
+    return {"holds": n("MATCH (o:Offer {response: 'hold'}) RETURN count(o) AS n"),
+            "tests": n("MATCH (x:Crossmatch {result: 'pending'}) RETURN count(x) AS n"),
+            "swaps": n("MATCH (l:Loop) WHERE l.status IN ['offered', 'testing', 'committee', 'locked'] RETURN count(l) AS n"),
+            "tasks": n("MATCH (t:Task {status: 'open'}) RETURN count(t) AS n"),
+            "waiting": n("MATCH (p:Pair {status: 'waiting', needs_rematch: true}) RETURN count(p) AS n")}
+
+
 def sweep() -> dict:
     """One pass over every duty. Skips if a reset or another action holds the graph, or the watch is paused."""
     if paused():
@@ -125,6 +137,10 @@ def sweep() -> dict:
                     except Exception as e:  # one failing duty must not stop the others
                         db.event("Watch", f"{fn.__name__} failed: {type(e).__name__}", "warn")
                 state["worlds"][w] = actions
+                try:
+                    state["checked"][w] = _checked()
+                except Exception:
+                    state["checked"].pop(w, None)
         if state["sweeps"] % 20 == 0:
             worlds.cleanup()
         state.update(sweeps=state["sweeps"] + 1, last_at=int(time.time() * 1000), last_actions=state["worlds"].get("", []))

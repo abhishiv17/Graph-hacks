@@ -205,6 +205,7 @@ def build(feed_limit: int = 40) -> dict:
         "watch": {"enabled": ws.get("enabled"), "interval_s": interval, "sweeps": ws.get("sweeps"),
                   "last_at": ws.get("last_at"), "running": ws.get("running"), "paused": watch.paused(),
                   "last_actions": (ws.get("worlds") or {}).get(db.world(), ws.get("last_actions") or []),
+                  "checked": (ws.get("checked") or {}).get(db.world()),
                   "autoplay_until": ws["autoplay"].get(db.world()), "busy": bool(ws["busy"].get(db.world()))},
         "now": now,
     }

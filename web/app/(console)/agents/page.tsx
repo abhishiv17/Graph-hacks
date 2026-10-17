@@ -24,6 +24,19 @@ function ago(ms: number | null | undefined, now: number) {
   return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;
 }
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** The last sweep in words: what it looked at, and whether anything needed doing. */
+function sweepText(w: AgentGraph["watch"]) {
+  const c = w.checked;
+  const looked = c ? [plural(c.holds, "held offer", "held offers"), plural(c.tests, "lab test out", "lab tests out"),
+    plural(c.swaps, "swap's committee papers", "swaps' committee papers"), plural(c.tasks, "open hand-off task", "open hand-off tasks"),
+    plural(c.waiting, "family waiting for a new swap", "families waiting for a new swap")].join(", ") + " and the demo patients' new readings"
+    : "held offers, lab tests, committee papers, hand-off tasks, families waiting for a new swap and the demo patients' new readings";
+  const acted = w.last_actions?.length ? `; acted ${plural(w.last_actions.length, "time", "times")}: ${w.last_actions.join("; ")}` : "; nothing needed doing";
+  return `Sweep ${w.sweeps} checked ${looked}${acted}.`;
+}
+
 function useNow(ms = 1000) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), ms); return () => clearInterval(t); }, [ms]);
@@ -215,6 +228,19 @@ export default function AgentsPage() {
               <p className="text-xs muted">Newest first, from the graph&rsquo;s Event nodes and the patients&rsquo; memory graphs. To see the health watch and the coordinator
                 agent act, press Next week on <Link className="underline" href="/patients/sunita">Sunita</Link> or <Link className="underline" href="/patients/rajesh">Rajesh</Link>.</p>
             </div>
+            {w?.enabled && !w.paused && w.last_at && (
+              <div className="px-4 py-2.5 grid gap-x-3 gap-y-0.5 sm:grid-cols-[7rem_13rem_1fr] text-sm border-b" style={{ borderColor: "var(--line)", background: "var(--sage-pale)" }}>
+                <span className="muted text-xs tnum pt-0.5">{ago(w.last_at, now)}</span>
+                <span className="flex items-center gap-2 font-semibold" style={{ color: "var(--ink-strong)" }}>
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${w.running ? "animate-pulse" : ""}`} style={{ background: "var(--ok)" }} />Background watch</span>
+                <span><Linked text={sweepText(w)} /> <span className="muted text-xs">Next sweep {next !== null ? `in ${next} s` : "due"}.</span></span>
+              </div>
+            )}
+            {g.feed[0] && now - g.feed[0].at > 5 * 60_000 && (
+              <p className="px-4 py-2.5 text-sm muted border-b" style={{ borderColor: "var(--line)" }}>
+                Quiet for {ago(g.feed[0].at, now).replace(" ago", "")}: every sweep since then found nothing an agent needed to act on. Press Run a
+                week now or Play on its own to hand them work, and each action appears here within seconds.</p>
+            )}
             {g.feed.length === 0 ? <p className="px-4 py-4 text-sm muted">Nothing yet. Press Run a week now.</p> : (
               <ol className="divide-y" style={{ borderColor: "var(--line)" }}>
                 {g.feed.map((f, i) => {

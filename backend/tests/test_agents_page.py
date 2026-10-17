@@ -38,6 +38,16 @@ def test_open_tasks_show_who_handed_what_to_whom():
     assert c.get("/api/agents/graph").status_code == 200
 
 
+def test_a_quiet_sweep_still_says_what_it_checked(monkeypatch):
+    from swapnet.agents import watch
+    monkeypatch.setattr(watch, "paused", lambda: False)
+    watch.sweep()
+    checked = network.build()["watch"]["checked"]
+    assert set(checked) == {"holds", "tests", "swaps", "tasks", "waiting"}
+    assert all(isinstance(v, int) and v >= 0 for v in checked.values())
+    assert checked["swaps"] > 0  # the demo story has swaps waiting on committee papers
+
+
 def test_examples_are_answered_by_the_real_tools_with_every_id_checked():
     out = examples.build(access.viewer(None))
     assert len(out) >= 4
